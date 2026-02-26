@@ -74,6 +74,7 @@ router.post("/agent/execute-tool", async (req: Request, res: Response): Promise<
     }
 
     let streamBuffer = "";
+    const STREAM_BUFFER_MAX = 50 * 1024; // 50KB cap for port detection to avoid OOM on Render (512MB)
     const result = await executeTool(workspaceId, call, {
       onSpawn(cid, kill) {
         if (tool === "run_terminal_cmd" && workspaceId) {
@@ -85,6 +86,7 @@ router.post("/agent/execute-tool", async (req: Request, res: Response): Promise<
           ws.send(JSON.stringify({ type: "tool_output_stream", callId: cid, chunk: String(chunk) }));
           if (tool === "run_terminal_cmd" && workspaceId) {
             streamBuffer += String(chunk);
+            if (streamBuffer.length > STREAM_BUFFER_MAX) streamBuffer = streamBuffer.slice(-STREAM_BUFFER_MAX / 2);
             const port = detectAndRegister(workspaceId, streamBuffer);
             if (port != null) {
               waitForPortReachable(port, 15000).then((host) => {

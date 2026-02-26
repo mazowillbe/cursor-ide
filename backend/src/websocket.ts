@@ -672,6 +672,8 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
               running.delete(key);
             };
                 let jsonlBuffer = "";
+                const JSONL_BUFFER_MAX = 100 * 1024; // 100KB cap to avoid OOM on Render free tier (512MB)
+                let loggedBufferCap = false;
                 let toolEventIndex = 0;
                 let toolCallSendCount = 0;
                 let loggedWaiting = false;
@@ -721,6 +723,14 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                       }
                     }
                     const { narrative, toKeep } = flushNarrativeFromRemainder(remainder);
+                    let trimmedKeep = toKeep;
+                    if (trimmedKeep.length > JSONL_BUFFER_MAX) {
+                      trimmedKeep = trimmedKeep.slice(-JSONL_BUFFER_MAX / 2);
+                      if (!loggedBufferCap) {
+                        loggedBufferCap = true;
+                        console.log("[agent] jsonlBuffer capped to avoid OOM");
+                      }
+                    }
                     const narrativeClean = narrative ? stripAnsi(narrative.replace(/\[[0-9;]+[A-Za-z]/g, "")).trim() : "";
                     if (narrativeClean && ws.readyState === ws.OPEN) {
                       ws.send(JSON.stringify({ type: "chunk", data: narrativeClean }));
@@ -743,7 +753,7 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                       sentIncompletePlaceholder = true;
                       ws.send(JSON.stringify({ type: "thinking", data: "" }));
                     }
-                    jsonlBuffer = toKeep;
+                    jsonlBuffer = trimmedKeep;
                     for (let oi = 0; oi < objects.length; oi++) {
                       let objStr = objects[oi];
                       let trimmed = objStr.trim();

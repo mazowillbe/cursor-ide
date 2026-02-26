@@ -6,6 +6,7 @@
 # 2. Add env var to the frontend (cursor-web-frontend): VITE_API_URL = <backend URL>
 # 3. Set OPENCODE_ZEN_API_KEY on the backend (for free Zen models) OR GEMINI_API_KEY (for Gemini)
 # 4. Redeploy the frontend so it picks up the API URL
+# 5. Free tier has 512MB RAM. If you see OOM, upgrade to a paid plan or set NODE_OPTIONS=--max-old-space-size=400
 
 services:
   - type: web
@@ -33,6 +34,8 @@ services:
         sync: false
       - key: USE_SUPABASE_FILES
         value: "true"
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=384"
 
   - type: web
     runtime: static
