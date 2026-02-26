@@ -313,7 +313,8 @@ export async function getHardcodedAgentConfig(workingDir: string): Promise<strin
       patch: "deny",
       webfetch: "deny",
     },
-    // Only expose custom tools; hide built-ins so the model does not call them.
+    // Disable built-ins so the model uses our custom tools (read_file, list_dir, etc.) from OPENCODE_CONFIG_DIR.
+    // Custom tools are loaded from opencode-config/tools/ and are available by default.
     tools: {
       read: false,
       write: false,
