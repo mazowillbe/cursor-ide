@@ -58,6 +58,14 @@ export async function runOpenCode(
     console.warn("[agent] getHardcodedAgentConfig returned null; OpenCode may use default config");
   }
   const isWin = process.platform === "win32";
+  // Use npx when OPENCODE_PATH is default so it works on Render (no global install)
+  const opencodeCmd =
+    opencode === "opencode" || opencode === "opencode.cmd"
+      ? "npx -y opencode-ai"
+      : opencode;
+  if (opencodeCmd !== opencode) {
+    console.log("[agent] using npx opencode-ai (no global opencode)");
+  }
   const messageForShell = isWin
     ? message.replace(/\r?\n/g, " ").replace(/\s{2,}/g, " ").trim()
     : message;
@@ -98,8 +106,8 @@ export async function runOpenCode(
       const shell = process.platform === "win32" ? "cmd.exe" : "sh";
       const args =
         process.platform === "win32"
-          ? ["/c", `${opencode} run${jsonFlag}${sessionFlag} -m ${modelId} "${quotedMessage}"`]
-          : ["-c", `${opencode} run${jsonFlag}${sessionFlag} -m ${modelId} "${quotedMessage}"`];
+          ? ["/c", `${opencodeCmd} run${jsonFlag}${sessionFlag} -m ${modelId} "${quotedMessage}"`]
+          : ["-c", `${opencodeCmd} run${jsonFlag}${sessionFlag} -m ${modelId} "${quotedMessage}"`];
 
       const ptyOpts: Record<string, unknown> = {
         cwd,
@@ -134,22 +142,18 @@ export async function runOpenCode(
     }
     const useShell = process.platform === "win32";
     const sessionArgs = opencodeSessionId ? ["-s", opencodeSessionId] : [];
-    // On Windows, if opencode is not set (default "opencode"), use npx so global install isn't required
-    const opencodeCmd = useShell && (opencode === "opencode" || opencode === "opencode.cmd")
-      ? "npx -y opencode-ai"
-      : opencode;
-    if (useShell && opencodeCmd !== opencode) {
-      console.log("[agent] using npx opencode-ai (OPENCODE_PATH not set)");
-    }
-    const cmd = useShell
-      ? `${opencodeCmd} run${jsonFlag}${sessionFlag} -m ${modelId} "${quotedMessage}"`
-      : null;
-    const args = useShell ? [] : ["run", ...(config.openCodeUseJson ? ["--format", "json"] : []), ...sessionArgs, "-m", modelId, message];
+    const runArgs = ["run", ...(config.openCodeUseJson ? ["--format", "json"] : []), ...sessionArgs, "-m", modelId, message];
     const spawnEnv = { ...env, TERM: "dumb" };
 
-    const child = useShell
-      ? spawn(cmd!, [], { cwd, env: spawnEnv, shell: true })
-      : spawn(opencode, args, { cwd, env: spawnEnv });
+    let child: ChildProcess;
+    if (useShell) {
+      const cmd = `${opencodeCmd} run${jsonFlag}${sessionFlag} -m ${modelId} "${quotedMessage}"`;
+      child = spawn(cmd, [], { cwd, env: spawnEnv, shell: true });
+    } else if (opencodeCmd === "npx -y opencode-ai") {
+      child = spawn("npx", ["-y", "opencode-ai", ...runArgs], { cwd, env: spawnEnv });
+    } else {
+      child = spawn(opencodeCmd, runArgs, { cwd, env: spawnEnv });
+    }
 
     // Close stdin so the child gets EOF and doesn't hang waiting for input (e.g. npx or opencode prompts)
     child.stdin?.end();
