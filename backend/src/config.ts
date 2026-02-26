@@ -3,7 +3,8 @@
  */
 export const config = {
   port: Number(process.env.PORT) || 3001,
-  host: process.env.HOST || "127.0.0.1",
+  /** Bind to 0.0.0.0 when PORT is set (e.g. Render) so external connections work; else 127.0.0.1 for local dev. */
+  host: process.env.HOST || (process.env.PORT ? "0.0.0.0" : "127.0.0.1"),
   workspaceRoot: process.env.WORKSPACE_ROOT || "./workspaces",
   openCodePath: process.env.OPENCODE_PATH || "opencode",
   /** Default model for opencode run. Use Gemini (google/...) if you added Gemini API key in opencode auth. */
