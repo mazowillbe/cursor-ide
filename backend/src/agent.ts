@@ -1,4 +1,6 @@
 import { createRequire } from "module";
+import fs from "fs";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import { spawn, type ChildProcess } from "child_process";
@@ -10,6 +12,24 @@ import { config } from "./config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const opencodeConfigDir = path.resolve(__dirname, "..", "opencode-config");
+
+/** Create auth.json for OpenCode Zen when OPENCODE_ZEN_API_KEY is set. Returns env overrides (XDG_DATA_HOME) or {}. */
+function setupZenAuth(): NodeJS.ProcessEnv {
+  const zenKey = process.env.OPENCODE_ZEN_API_KEY?.trim();
+  if (!zenKey) return {};
+  const dataDir = path.join(os.tmpdir(), "opencode-cursor-web-auth");
+  const opencodeDir = path.join(dataDir, "opencode");
+  const authPath = path.join(opencodeDir, "auth.json");
+  try {
+    fs.mkdirSync(opencodeDir, { recursive: true });
+    const auth = { opencode: { type: "api" as const, key: zenKey } };
+    fs.writeFileSync(authPath, JSON.stringify(auth), "utf8");
+    return { XDG_DATA_HOME: dataDir };
+  } catch (err) {
+    console.warn("[agent] failed to write Zen auth.json:", err);
+    return {};
+  }
+}
 
 export type WorkspaceId = string;
 
@@ -42,8 +62,10 @@ export async function runOpenCode(
   const modelId = model || config.openCodeDefaultModel;
   const configPath = await getHardcodedAgentConfig(cwd);
   const backendUrl = `http://127.0.0.1:${config.port}`;
+  const zenAuthEnv = setupZenAuth();
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    ...zenAuthEnv,
     OPENCODE_CLIENT: "cursor-web",
     OPENCODE_CONFIG_DIR: opencodeConfigDir,
     OPENCODE_WORKSPACE_ID: workspaceId,
@@ -53,6 +75,9 @@ export async function runOpenCode(
     ...(configPath && { OPENCODE_CONFIG_CONTENT: configPath }),
     ...(process.env.GEMINI_API_KEY && { GEMINI_API_KEY: process.env.GEMINI_API_KEY }),
   };
+  if (zenAuthEnv.XDG_DATA_HOME) {
+    console.log("[agent] Zen API key configured via OPENCODE_ZEN_API_KEY (bearer token)");
+  }
   if (configPath) {
     console.log("[agent] system prompt and config loaded from", configPath);
   } else {

@@ -4,7 +4,7 @@
 # After first deploy:
 # 1. Copy the backend URL (e.g. https://cursor-web-backend.onrender.com)
 # 2. Add env var to the frontend (cursor-web-frontend): VITE_API_URL = <backend URL>
-# 3. Set GEMINI_API_KEY on the backend (required for AI agent - Zen models need interactive auth)
+# 3. Set OPENCODE_ZEN_API_KEY on the backend (for free Zen models) OR GEMINI_API_KEY (for Gemini)
 # 4. Redeploy the frontend so it picks up the API URL
 
 services:
@@ -26,6 +26,8 @@ services:
       - key: SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: OPENCODE_ZEN_API_KEY
         sync: false
       - key: GEMINI_API_KEY
         sync: false
