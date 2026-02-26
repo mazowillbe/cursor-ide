@@ -16,4 +16,6 @@ export const config = {
   maxWorkspaceAgeMs: Number(process.env.MAX_WORKSPACE_AGE_MS) || 24 * 60 * 60 * 1000,
   /** Allowed CORS origin(s). Comma-separated for multiple. If unset, allows all (origin: true). */
   corsOrigin: process.env.CORS_ORIGIN?.trim() || undefined,
+  /** Use Supabase files table for persistent workspace storage (enables multi-user on Render). */
+  useSupabaseFiles: process.env.USE_SUPABASE_FILES === "1" || process.env.USE_SUPABASE_FILES === "true",
 } as const;

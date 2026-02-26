@@ -4,6 +4,13 @@ import path from "path";
 import { execSync, spawn } from "child_process";
 import { randomUUID } from "crypto";
 import { config } from "./config.js";
+import {
+  syncSupabaseToDisk,
+  syncDiskToSupabase,
+  writeFileToSupabase,
+  createFolderInSupabase,
+  deletePathFromSupabase,
+} from "./workspace-supabase.js";
 
 export type WorkspaceId = string;
 
@@ -64,6 +71,9 @@ export async function createWorkspaceWithId(id: WorkspaceId): Promise<void> {
   await ensureWorkspaceRoot();
   const dir = getWorkspacePath(id);
   await fs.mkdir(dir, { recursive: true });
+  if (config.useSupabaseFiles) {
+    await syncSupabaseToDisk(id, dir);
+  }
   initGitInWorkspace(id);
 }
 
@@ -118,6 +128,11 @@ export async function writeFile(
   if (!full.startsWith(base)) throw new Error("Invalid path");
   await fs.mkdir(path.dirname(full), { recursive: true });
   await fs.writeFile(full, content, "utf-8");
+  if (config.useSupabaseFiles) {
+    await writeFileToSupabase(workspaceId, filePath, content).catch((e) =>
+      console.warn("[workspace] Supabase write failed:", (e as Error).message)
+    );
+  }
 }
 
 export async function createFolder(
@@ -128,6 +143,11 @@ export async function createFolder(
   const full = path.join(base, path.normalize(folderPath));
   if (!full.startsWith(base)) throw new Error("Invalid path");
   await fs.mkdir(full, { recursive: true });
+  if (config.useSupabaseFiles) {
+    await createFolderInSupabase(workspaceId, folderPath).catch((e) =>
+      console.warn("[workspace] Supabase createFolder failed:", (e as Error).message)
+    );
+  }
 }
 
 export async function deletePath(workspaceId: WorkspaceId, filePath: string): Promise<void> {
@@ -135,6 +155,11 @@ export async function deletePath(workspaceId: WorkspaceId, filePath: string): Pr
   const full = path.join(base, path.normalize(filePath));
   if (!full.startsWith(base)) throw new Error("Invalid path");
   await fs.rm(full, { recursive: true });
+  if (config.useSupabaseFiles) {
+    await deletePathFromSupabase(workspaceId, filePath).catch((e) =>
+      console.warn("[workspace] Supabase delete failed:", (e as Error).message)
+    );
+  }
 }
 
 export async function workspaceExists(workspaceId: WorkspaceId): Promise<boolean> {

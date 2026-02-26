@@ -28,6 +28,8 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      - key: USE_SUPABASE_FILES
+        value: "true"
 
   - type: web
     runtime: static

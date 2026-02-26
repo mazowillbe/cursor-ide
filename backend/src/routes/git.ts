@@ -3,6 +3,8 @@ import { execSync, execFileSync } from "child_process";
 import fs from "fs/promises";
 import path from "path";
 import { getWorkspacePath, workspaceExists, initGitInWorkspace } from "../workspace.js";
+import { syncDiskToSupabase } from "../workspace-supabase.js";
+import { config } from "../config.js";
 
 const router = Router();
 
@@ -136,6 +138,11 @@ router.post("/:workspaceId/git/clone", async (req: Request, res: Response): Prom
       const err = e as { stderr?: string; message?: string };
       res.status(400).json({ error: err.stderr || err.message || "Clone failed" });
       return;
+    }
+    if (config.useSupabaseFiles) {
+      await syncDiskToSupabase(workspaceId, cwd).catch((e) =>
+        console.warn("[git] syncDiskToSupabase failed:", (e as Error).message)
+      );
     }
     res.json({ ok: true });
   } catch (e) {

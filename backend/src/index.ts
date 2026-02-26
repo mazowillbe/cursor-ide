@@ -105,10 +105,11 @@ async function main() {
     }
   });
 
-  server.listen(config.port, config.host, () => {
-    console.log(`Backend listening on http://${config.host}:${config.port}`);
-    console.log(`WebSocket agent at ws://${config.host}:${config.port}/api/agent`);
-    console.log(`Preview proxy at http://${config.host}:${config.port}/api/preview/:workspaceId/`);
+  const listenHost = process.env.PORT ? "0.0.0.0" : (config.host || "127.0.0.1");
+  server.listen(config.port, listenHost, () => {
+    console.log(`Backend listening on http://${listenHost}:${config.port}`);
+    console.log(`WebSocket agent at ws://${listenHost}:${config.port}/api/agent`);
+    console.log(`Preview proxy at http://${listenHost}:${config.port}/api/preview/:workspaceId/`);
   });
 }
 

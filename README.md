@@ -121,6 +121,7 @@ cursor-web/
 | `SUPABASE_ANON_KEY` | Supabase anon key (for JWT verification) | required |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (for backend ops) | required |
 | `CORS_ORIGIN` | Allowed origin(s), comma-separated (e.g. for Render frontend URL) | optional; if unset, allows all |
+| `USE_SUPABASE_FILES` | Set to `true` to persist workspace files to Supabase (enables multi-user on Render) | optional |
 
 ### Frontend (env)
 
