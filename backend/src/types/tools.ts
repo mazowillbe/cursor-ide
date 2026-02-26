@@ -15,6 +15,7 @@ export type ToolName =
   | "search_replace"
   | "file_search"
   | "delete_file"
+  | "read_lints"
   | "codebase_search"
   | "web_search"
   | "create_diagram"
@@ -51,7 +52,7 @@ export interface ToolResult {
   /** For read_file: 1-based start/end line actually read (inclusive). */
   startLine?: number;
   endLine?: number;
-  /** Optional structured payload for the frontend. */
+  /** Optional structured payload (e.g. read_lints: { errorCount, summary }). */
   payload?: Record<string, unknown>;
 }
 

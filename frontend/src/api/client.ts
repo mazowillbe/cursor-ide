@@ -1,4 +1,13 @@
-const API = "/api";
+/** Backend base URL. When VITE_API_URL is set (e.g. on Render), use it; otherwise use relative /api. */
+const getApiBase = (): string => {
+  const url = import.meta.env.VITE_API_URL;
+  if (url && typeof url === "string" && url.trim()) {
+    return url.replace(/\/$/, "") + "/api";
+  }
+  return "/api";
+};
+
+const API = getApiBase();
 
 export interface FileNode {
   name: string;
@@ -238,9 +247,14 @@ export async function suggestProjectName(message: string): Promise<string | null
 }
 
 export function getAgentWebSocketUrl(): string {
+  const url = import.meta.env.VITE_API_URL;
+  if (url && typeof url === "string" && url.trim()) {
+    const wsBase = url.replace(/^http/, "ws").replace(/\/$/, "");
+    return `${wsBase}/api/agent`;
+  }
+  if (import.meta.env.DEV) return "ws://127.0.0.1:3001/api/agent";
   const base = window.location.origin.replace(/^http/, "ws");
-  const api = import.meta.env.DEV ? "ws://127.0.0.1:3001" : base;
-  return `${api}/api/agent`;
+  return `${base}/api/agent`;
 }
 
 /** Request killing a running terminal command (e.g. when user clicks X on the card). */

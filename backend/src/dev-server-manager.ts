@@ -74,6 +74,17 @@ export function unregisterDevServerProcess(workspaceId: string): void {
   killByWorkspace.delete(workspaceId);
 }
 
+/** Returns true if the command is a build command (e.g. npm run build) that produces dist/. */
+export function isBuildCommand(command: string): boolean {
+  const c = (command || "").trim().toLowerCase();
+  return (
+    /npm\s+run\s+build\b/.test(c) ||
+    /\b(?:yarn|pnpm)\s+(?:run\s+)?build\b/.test(c) ||
+    /\bnpx\s+vite\s+build\b/.test(c) ||
+    /\b(?:ng\s+build|next\s+build)\b/.test(c)
+  );
+}
+
 /**
  * Returns true if the terminal output indicates a rebuild/HMR so the preview can auto-reload.
  */

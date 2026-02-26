@@ -6,8 +6,13 @@
 
 import * as net from "node:net";
 
+/** Strip ANSI escape sequences so regex can match (e.g. Vite puts \u001b[1m between localhost: and the port). */
+function stripAnsi(text: string): string {
+  return text.replace(/\u001b\[[0-9;]*[a-zA-Z]/g, "");
+}
+
 const DEV_SERVER_PATTERNS = [
-  // Vite
+  // Vite (with or without ANSI codes)
   /Local:\s*(?:https?:\/\/[^\s]+)?localhost:(\d+)/i,
   /localhost:(\d+)/i,
   /:\/\/127\.0\.0\.1:(\d+)/i,
@@ -22,7 +27,7 @@ const DEV_SERVER_PATTERNS = [
 const PORT_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 /** Ports used by the main cursor-web app (frontend + backend). Never use these for workspace preview. */
-const RESERVED_PORTS = new Set([3001, 5173]);
+const RESERVED_PORTS = new Set([5173]);
 
 interface PortEntry {
   port: number;
@@ -39,8 +44,9 @@ const portByWorkspace = new Map<string, PortEntry>();
  */
 export function detectPortFromOutput(text: string): number | null {
   if (!text || typeof text !== "string") return null;
+  const clean = stripAnsi(text);
   for (const re of DEV_SERVER_PATTERNS) {
-    const m = text.match(re);
+    const m = clean.match(re);
     if (m && m[1]) {
       const port = parseInt(m[1], 10);
       if (port >= 1024 && port <= 65535) return port;

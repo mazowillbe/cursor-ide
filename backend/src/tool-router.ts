@@ -54,6 +54,7 @@ function normalizeToolName(raw: string): string {
     file_search: "file_search",
     glob: "file_search",
     delete_file: "delete_file",
+    read_lints: "read_lints",
     reapply: "reapply",
     codebase_search: "codebase_search",
     web_search: "web_search",
@@ -61,6 +62,28 @@ function normalizeToolName(raw: string): string {
     edit_notebook: "edit_notebook",
   };
   return map[raw] ?? raw;
+}
+
+/** Parse lint output to count errors. Handles eslint, tsc, and common formats. */
+function parseLintErrorCount(output: string): number {
+  if (!output || typeof output !== "string") return 0;
+  const s = output;
+  const eslintMatch = s.match(/(\d+)\s+error(s?)\s+and\s+(\d+)\s+warning/i)
+    ?? s.match(/(\d+)\s+error(s?)\b/i)
+    ?? s.match(/✖\s*(\d+)\s+problem/i)
+    ?? s.match(/(\d+)\s+problem(s?)\s+\((\d+)\s+error/i);
+  if (eslintMatch) {
+    const err = parseInt(eslintMatch[1], 10);
+    const errFromProblems = eslintMatch[3] ? parseInt(eslintMatch[3], 10) : err;
+    return Number.isNaN(errFromProblems) ? (Number.isNaN(err) ? 0 : err) : errFromProblems;
+  }
+  const tscMatch = s.match(/(\d+)\s+error(s?)\s+found/i);
+  if (tscMatch) return parseInt(tscMatch[1], 10) || 0;
+  if (/\berror\s*:\s*\d+/i.test(s) || /Found\s+\d+\s+error/i.test(s)) {
+    const n = s.match(/(\d+)\s*error/i);
+    return n ? parseInt(n[1], 10) || 0 : 0;
+  }
+  return 0;
 }
 
 /** Recursively list relative file paths under dir (relative to workspace). */
@@ -227,6 +250,44 @@ export async function executeTool(
             });
           }, DEV_SERVER_INITIAL_OUTPUT_MS);
         }
+        options?.onSpawn?.(callId, proc.kill);
+      });
+    }
+
+    if (tool === "read_lints") {
+      const LINT_TIMEOUT_MS = 60_000;
+      return new Promise<ToolResult>((resolve) => {
+        const chunks: string[] = [];
+        const proc = runCommandStream(
+          workspaceId,
+          "npm run lint 2>&1",
+          {
+            onChunk(chunk) {
+              chunks.push(chunk);
+            },
+            onEnd(exitCode) {
+              const output = chunks.join("");
+              const code = exitCode ?? 1;
+              const errorCount = parseLintErrorCount(output);
+              const summary =
+                errorCount === 0
+                  ? "No linting errors found."
+                  : `${errorCount} linting error${errorCount === 1 ? "" : "s"} found.`;
+              const fullOutput = output.trim()
+                ? `${summary}\n\n${output.trim()}`
+                : summary;
+              resolve({
+                callId,
+                tool: rawTool,
+                success: code === 0 && errorCount === 0,
+                output: fullOutput,
+                exitCode: code,
+                payload: { errorCount, summary },
+              });
+            },
+          },
+          { timeoutMs: LINT_TIMEOUT_MS }
+        );
         options?.onSpawn?.(callId, proc.kill);
       });
     }

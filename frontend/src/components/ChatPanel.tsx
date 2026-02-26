@@ -1167,6 +1167,36 @@ export default function ChatPanel({
                                 </div>
                               );
                             }
+                            if (tb.tool === "read_lints") {
+                              const label = tb.pending
+                                ? "Reading lints"
+                                : (() => {
+                                    const c = (tb.content ?? "").trim();
+                                    if (/^No linting errors found/i.test(c)) return "No linting errors found";
+                                    const m = c.match(/^(\d+)\s+linting error(s?) found/i);
+                                    return m ? `${m[1]} linting error${m[2]} found` : "Lints";
+                                  })();
+                              return (
+                                <div
+                                  key={tb.callId}
+                                  className={`${TOOL_LINE} my-0.5 whitespace-nowrap min-w-0 overflow-hidden`}
+                                  title={label}
+                                >
+                                  <span className="inline-flex items-baseline gap-1 min-w-0">
+                                    {tb.pending && <span className="shrink-0">{TOOL_SPINNER}</span>}
+                                    <strong className="font-semibold text-gray-200">{label}</strong>
+                                  </span>
+                                  {!tb.pending && (tb.content ?? "").trim() && (tb.content ?? "").includes("\n\n") && (
+                                    <details className="ml-3 mt-0.5">
+                                      <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-400">Details</summary>
+                                      <pre className="mt-1 p-2 text-xs bg-surface-600/50 rounded overflow-x-auto whitespace-pre-wrap max-h-32">
+                                        {(tb.content ?? "").trim().split("\n\n").slice(1).join("\n\n")}
+                                      </pre>
+                                    </details>
+                                  )}
+                                </div>
+                              );
+                            }
                             if (tb.tool === "file_search") {
                               const query = (tb.path ?? "").trim() || "query";
                               const searchLabel = tb.pending ? "Searching" : "Searched";

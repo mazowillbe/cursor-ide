@@ -120,6 +120,7 @@ cursor-web/
 | `SUPABASE_URL` | Supabase project URL | required |
 | `SUPABASE_ANON_KEY` | Supabase anon key (for JWT verification) | required |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (for backend ops) | required |
+| `CORS_ORIGIN` | Allowed origin(s), comma-separated (e.g. for Render frontend URL) | optional; if unset, allows all |
 
 ### Frontend (env)
 
@@ -127,6 +128,7 @@ cursor-web/
 |----------|-------------|
 | `VITE_SUPABASE_URL` | Supabase project URL |
 | `VITE_SUPABASE_ANON_KEY` | Supabase anon key |
+| `VITE_API_URL` | Backend URL when frontend is on a different origin (e.g. Render) |
 
 - In development, the Vite dev server proxies `/api` to the backend; the agent WebSocket connects directly to `ws://127.0.0.1:3001`.
 - For production, serve the frontend and backend from the same origin (or set your API/WS base URL via env and use it in `src/api/client.ts`).
@@ -142,6 +144,15 @@ cd frontend && npm run build
 ```
 
 Serve `frontend/dist` with your static server and ensure API and WebSocket routes point to the backend (e.g. reverse proxy to the same host).
+
+## Deploy to Render (Option B: Backend + Static Site)
+
+1. Push this repo to GitHub and connect it to [Render](https://render.com).
+2. Create a new Blueprint from the repo; Render will detect `render.yaml`.
+3. Set environment variables in the Render Dashboard for both services:
+   - **Backend** (`cursor-web-backend`): `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY` (optional), `CORS_ORIGIN` (your frontend URL, e.g. `https://cursor-web-frontend.onrender.com`).
+   - **Frontend** (`cursor-web-frontend`): `VITE_API_URL` (your backend URL, e.g. `https://cursor-web-backend.onrender.com`), `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
+4. Deploy. After the first deploy, copy the backend URL and set `VITE_API_URL` on the frontend, then redeploy the frontend.
 
 ## Architecture
 

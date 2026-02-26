@@ -27,7 +27,10 @@ async function main() {
   await ensureWorkspaceRoot();
 
   const app = express();
-  app.use(cors({ origin: true }));
+  const corsOpts = config.corsOrigin
+    ? { origin: config.corsOrigin.split(",").map((o) => o.trim()).filter(Boolean) }
+    : { origin: true };
+  app.use(cors(corsOpts));
   app.use(express.json({ limit: "10mb" }));
 
   app.use("/api", sessionsRouter);

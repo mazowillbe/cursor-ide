@@ -1,0 +1,48 @@
+# Render Blueprint: cursor-web (Option B - Backend + Static Site)
+# Deploy: Connect this repo to Render and apply the Blueprint.
+#
+# After first deploy:
+# 1. Copy the backend URL (e.g. https://cursor-web-backend.onrender.com)
+# 2. Add env var to the frontend (cursor-web-frontend): VITE_API_URL = <backend URL>
+# 3. Redeploy the frontend so it picks up the API URL
+
+services:
+  - type: web
+    runtime: node
+    name: cursor-web-backend
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGIN
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+
+  - type: web
+    runtime: static
+    name: cursor-web-frontend
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false

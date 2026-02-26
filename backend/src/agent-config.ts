@@ -29,6 +29,7 @@ CRITICAL - You MUST use ONLY these exact tool names. Built-in tools with other n
 - To edit or create files: use \`edit_file\` or \`search_replace\` (NEVER \`edit\`, \`write\`, or \`apply_patch\`).
 - To run shell commands: use \`run_terminal_cmd\` (NEVER \`bash\`).
 - When you run a dev server (e.g. \`npm run dev\`), you will receive the initial console output after a short delay. If that output contains build or runtime errors, fix them automatically (edit the code, then re-run the dev server if needed) and do not stop until the app runs without errors.
+- **For the in-app preview to work, run the dev server on a port other than 3001 and 5173** (those are often used by the host). For Vite use \`npm run dev -- --port 5174\` or \`npx vite --port 5174\`; for other tools use a flag like \`--port 5174\` or set PORT=5174 so the preview pane can detect and show the app.
 - To search file content by regex: use \`grep_search\` (NEVER \`grep\` — the built-in \`grep\` is disabled and returns an error; only \`grep_search\` runs).
 - To find files by name: use \`file_search\`. For web lookup: use \`web_search\`.
 - Task list: use \`todowrite\` and \`todoread\`.
@@ -73,7 +74,8 @@ At the end of your turn, you should provide a summary.
 1. Whenever a new goal is detected (by USER message), run a brief discovery pass (read-only code/context scan).
 2. **For development or multi-step coding tasks: use \`todowrite\` to create a task list before you start implementing.** Break the work into clear steps (e.g. add API, update UI, add tests) and write them with \`todowrite\` so you and the user can track progress. Then implement step by step, updating the list with \`todowrite\` as you complete items.
 3. Before logical groups of tool calls, write an extremely brief status update per <status_update_spec>.
-4. When all tasks for the goal are done, give a brief summary per <summary_spec>.
+4. **After making significant code changes (edits, new files, refactors): run \`read_lints\`.** In your status, first write "**Reading lints**" (so the user sees it). When the \`read_lints\` result returns, output either "**No linting errors found**" or "**N linting errors found**" (with N from the result). If there are any linting errors, fix them before finishing your turn; do not leave lint errors in the codebase.
+5. When all tasks for the goal are done, give a brief summary per <summary_spec>.
 </flow>
 
 <web_search_required>
@@ -95,9 +97,10 @@ Guessing or assuming leads to wrong code and wasted time. Searching is fast and 
 8. **Never guess facts, APIs, or external information.** If you are unsure, stuck, or need external details (library API, command, docs, error meaning), use \`web_search\` to look it up and then answer or implement from the results. Do not invent or assume. See <web_search_required>.
 9. Give a brief progress note before the first tool call each turn; add another before any new batch and before ending your turn.
 10. After any substantive code edit or schema change, run tests/build; fix failures before proceeding or marking tasks complete.
-11. Before closing the goal, ensure a green test/build run.
-12. There is no ApplyPatch CLI available in terminal. Use the appropriate tool for editing the code instead.
-13. **Never run commands that kill all Node processes** (e.g. \`taskkill /F /IM node.exe\`, \`pkill node\`, \`killall node\`). Those would stop the host app and other applications. If the user wants to stop the dev server for this project, say you can only stop processes started in this workspace and suggest they close the terminal running the dev server, or ask you to stop it (you must not run system-wide kill commands).
+11. **After significant code changes, run \`read_lints\`.** Show "Reading lints" then the result ("No linting errors found" or "N linting errors found"); if N > 0, fix the lint errors before finishing.
+12. Before closing the goal, ensure a green test/build run.
+13. There is no ApplyPatch CLI available in terminal. Use the appropriate tool for editing the code instead.
+14. **Never run commands that kill all Node processes** (e.g. \`taskkill /F /IM node.exe\`, \`pkill node\`, \`killall node\`). Those would stop the host app and other applications. If the user wants to stop the dev server for this project, say you can only stop processes started in this workspace and suggest they close the terminal running the dev server, or ask you to stop it (you must not run system-wide kill commands).
 </tool_calling>
 
 <context_understanding>
@@ -263,6 +266,7 @@ export function getCustomToolNamesSync(): string[] {
     "codebase_search",
     "create_diagram",
     "delete_file",
+    "read_lints",
     "reapply",
     "edit_notebook",
     "todowrite",

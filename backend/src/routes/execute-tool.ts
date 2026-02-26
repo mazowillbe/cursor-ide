@@ -73,6 +73,7 @@ router.post("/agent/execute-tool", async (req: Request, res: Response): Promise<
       );
     }
 
+    let streamBuffer = "";
     const result = await executeTool(workspaceId, call, {
       onSpawn(cid, kill) {
         if (tool === "run_terminal_cmd" && workspaceId) {
@@ -83,8 +84,8 @@ router.post("/agent/execute-tool", async (req: Request, res: Response): Promise<
         if (ws && ws.readyState === ws.OPEN) {
           ws.send(JSON.stringify({ type: "tool_output_stream", callId: cid, chunk: String(chunk) }));
           if (tool === "run_terminal_cmd" && workspaceId) {
-            const chunkStr = String(chunk);
-            const port = detectAndRegister(workspaceId, chunkStr);
+            streamBuffer += String(chunk);
+            const port = detectAndRegister(workspaceId, streamBuffer);
             if (port != null) {
               waitForPortReachable(port, 15000).then((host) => {
                 if (host) setPreviewHost(workspaceId, host);
@@ -93,7 +94,7 @@ router.post("/agent/execute-tool", async (req: Request, res: Response): Promise<
                 }
               });
             }
-            if (detectRebuildFromOutput(chunkStr)) {
+            if (detectRebuildFromOutput(streamBuffer)) {
               ws.send(JSON.stringify({ type: "preview_refresh", workspaceId }));
             }
           }

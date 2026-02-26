@@ -13,4 +13,6 @@ export const config = {
   /** Use PTY for opencode (streaming). Set to "0" on Windows if PTY only gives one chunk then hangs; then output will arrive when the run finishes. On Windows we default to no PTY to avoid TTY escape codes and get clean stderr. */
   openCodeUsePty: process.env.OPENCODE_USE_PTY !== "0" && process.platform !== "win32",
   maxWorkspaceAgeMs: Number(process.env.MAX_WORKSPACE_AGE_MS) || 24 * 60 * 60 * 1000,
+  /** Allowed CORS origin(s). Comma-separated for multiple. If unset, allows all (origin: true). */
+  corsOrigin: process.env.CORS_ORIGIN?.trim() || undefined,
 } as const;
