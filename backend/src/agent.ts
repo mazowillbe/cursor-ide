@@ -61,9 +61,9 @@ export async function runOpenCode(
   const isWin = process.platform === "win32";
   // Use npx when OPENCODE_PATH is default so it works on Render (no global install)
   const useNpx = opencode === "opencode" || opencode === "opencode.cmd";
-  const opencodeCmd = useNpx ? "npx -y @opencode-ai/cli" : opencode;
+  const opencodeCmd = useNpx ? "npx -y opencode-ai" : opencode;
   if (useNpx) {
-    console.log("[agent] using npx @opencode-ai/cli (no global opencode)");
+    console.log("[agent] using npx opencode-ai (no global opencode)");
   }
   const messageForShell = isWin
     ? message.replace(/\r?\n/g, " ").replace(/\s{2,}/g, " ").trim()
@@ -149,7 +149,7 @@ export async function runOpenCode(
       const cmd = `${opencodeCmd} run${jsonFlag}${sessionFlag} -m ${modelId} "${quotedMessage}"`;
       child = spawn(cmd, [], { cwd, env: spawnEnv, shell: true });
     } else if (useNpx) {
-      child = spawn("npx", ["-y", "@opencode-ai/cli", ...runArgs], { cwd, env: spawnEnv });
+      child = spawn("npx", ["-y", "opencode-ai", ...runArgs], { cwd, env: spawnEnv });
     } else {
       child = spawn(opencodeCmd, runArgs, { cwd, env: spawnEnv });
     }
@@ -166,7 +166,7 @@ export async function runOpenCode(
     child.on("error", (err: NodeJS.ErrnoException) => {
       const msg =
         err.code === "ENOENT"
-          ? `OpenCode not found. Install: npm install -g @opencode-ai/cli`
+          ? `OpenCode not found. Install: npm install -g opencode-ai`
           : err.message;
       callbacks.onError(new Error(msg));
     });
