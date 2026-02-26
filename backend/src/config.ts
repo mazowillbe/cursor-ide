@@ -7,8 +7,10 @@ export const config = {
   host: process.env.HOST || (process.env.PORT ? "0.0.0.0" : "127.0.0.1"),
   workspaceRoot: process.env.WORKSPACE_ROOT || "./workspaces",
   openCodePath: process.env.OPENCODE_PATH || "opencode",
-  /** Default model for opencode run. Use Gemini (google/...) if you added Gemini API key in opencode auth. */
-  openCodeDefaultModel: process.env.OPENCODE_DEFAULT_MODEL || "opencode/minimax-m2.5-free",
+  /** Default model for opencode run. When GEMINI_API_KEY is set (e.g. on Render), use Gemini; else Zen (requires opencode auth login). */
+  openCodeDefaultModel:
+    process.env.OPENCODE_DEFAULT_MODEL ||
+    (process.env.GEMINI_API_KEY ? "google/gemini-2.0-flash" : "opencode/minimax-m2.5-free"),
   /** Use opencode run --format json for structured tool extraction. Set to false for legacy text mode. */
   openCodeUseJson: true,
   /** Use PTY for opencode (streaming). Set to "0" on Windows if PTY only gives one chunk then hangs; then output will arrive when the run finishes. On Windows we default to no PTY to avoid TTY escape codes and get clean stderr. */
