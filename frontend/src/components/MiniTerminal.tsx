@@ -114,7 +114,7 @@ const Spinner = () => (
   </svg>
 );
 
-export default function MiniTerminal({ label, cmdName, fullCmd, output, failed = false, aborted = false, onShowInMainTerminal, onClose, onKill }: MiniTerminalProps) {
+export default function MiniTerminal({ label, cmdName: _cmdName, fullCmd, output, failed = false, aborted = false, onShowInMainTerminal, onClose, onKill }: MiniTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<{ term: import("xterm").Terminal; dispose: () => void } | null>(null);
   const outputLengthRef = useRef(0);

@@ -18,8 +18,6 @@ function defineCursorDarkTheme(monaco: typeof Monaco): void {
   monaco.editor.defineTheme("cursor-dark", {
     base: "vs-dark",
     inherit: false,
-    semanticHighlighting: false,
-
     rules: [
       { token: "", foreground: white },
       { token: "keyword", foreground: keywordBlue },
@@ -63,18 +61,6 @@ function defineCursorDarkTheme(monaco: typeof Monaco): void {
       { token: "identifier", foreground: white },
       { token: "operator", foreground: white },
     ],
-    semanticTokenColors: {
-      variable: "#9CDCFE",
-      parameter: "#9CDCFE",
-      property: "#9CDCFE",
-      function: "#DCDCAA",
-      method: "#DCDCAA",
-      type: "#4EC9B0",
-      class: "#4EC9B0",
-      interface: "#4EC9B0",
-      enum: "#4EC9B0",
-    },
-  
     colors: {
       "editor.background": "#1E1E1E",
       "editor.foreground": "#D4D4D4",
@@ -273,7 +259,6 @@ export default function EditorPanel({
           horizontalScrollbarSize: 6,
           useShadows: false,
         },
-        breadcrumbs: true,
         folding: true,
         showFoldingControls: "mouseover",
         renderLineHighlight: "all",
@@ -393,7 +378,6 @@ export default function EditorPanel({
                 horizontalScrollbarSize: 6,
                 useShadows: false,
               },
-              breadcrumbs: true,
               showUnused: false,
               folding: true,
               showFoldingControls: "mouseover",

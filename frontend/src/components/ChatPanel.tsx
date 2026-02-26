@@ -497,7 +497,6 @@ function mergeReadBlocks(blocks: ContentBlock[]): ContentBlock[] {
     const currBase = currPath.split(/[/\\]/).pop() || currPath;
     const prevHasNoExt = prevBase.length > 0 && !prevBase.includes(".");
     const currIsExtOnly = /^\.\w+$/.test(currBase) && b.startLine != null && b.endLine != null;
-    const currHasExtAndRange = currBase.includes(".") && b.startLine != null && b.endLine != null;
     const currStemMatchesPrev = prevHasNoExt && currBase.startsWith(prevBase + ".");
     if (isPrevRead && prevHasNoExt && (currIsExtOnly || currStemMatchesPrev) && (b.startLine != null && b.endLine != null)) {
       const mergedPath = currIsExtOnly ? prevBase + currBase : currPath;

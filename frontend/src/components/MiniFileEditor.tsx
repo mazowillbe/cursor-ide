@@ -7,10 +7,7 @@ import FileIcon from "./FileIcon";
 const CARD_BG = "#1e1e1e";
 const HEADER_BG = "#252526";
 const CONTENT_BG = "#1e1e1e";
-const PILL_BG = "#5DA9E9";
-const PILL_FG = "#ffffff";
 const FILENAME_COLOR = "#ffffff";
-const DIFF_STAT_COLOR = "#9e9e9e";
 const CODE_FG = "#ffffff";
 const CODE_FONT = "Consolas, Menlo, 'Courier New', monospace";
 const CODE_FONT_SIZE = "13px";
@@ -142,7 +139,7 @@ function parseDiffOrPlain(content: string): {
   return { lines: result, addCount, removeCount };
 }
 
-export default function MiniFileEditor({ path, content, pending, label = "Edit", workspaceId, onClose, onOpenFile }: MiniFileEditorProps) {
+export default function MiniFileEditor({ path, content, pending, workspaceId }: MiniFileEditorProps) {
   const pathTrimmed = path.trim();
   const preRef = useRef<HTMLPreElement>(null);
   const prevLenRef = useRef(0);
