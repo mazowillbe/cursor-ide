@@ -51,7 +51,7 @@ export function initGitInWorkspace(workspaceId: WorkspaceId): void {
   const dir = getWorkspacePath(workspaceId);
   if (!existsSync(dir)) return;
   try {
-    execSync("git init", { cwd: dir, encoding: "utf-8" });
+    execSync("git init -b main", { cwd: dir, encoding: "utf-8" });
   } catch (err) {
     console.warn("[workspace] git init failed for", workspaceId, err instanceof Error ? err.message : err);
   }

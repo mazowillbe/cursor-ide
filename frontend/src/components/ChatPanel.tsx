@@ -791,10 +791,12 @@ export default function ChatPanel({
     thinkingBufferRef.current = "";
 
     const url = getAgentWebSocketUrl();
+    console.log("[Chat] Connecting to agent WebSocket:", url);
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
     ws.onopen = () => {
+      console.log("[Chat] WebSocket connected, sending run");
       const messageWithHistory = buildMessageWithHistory(previousMessages, messageToSend);
       const conversationMessages = previousMessages.slice(-20).map((m) => ({
         role: m.role as "user" | "assistant",
@@ -816,6 +818,7 @@ export default function ChatPanel({
       try {
         const data = JSON.parse(event.data as string);
         if (data.type === "chunk") {
+          if (streamBufferRef.current === "") console.log("[Chat] First chunk received");
           const raw = data.data ?? "";
           onAgentChunk?.(raw);
           const cleaned = cleanOutput(raw);
@@ -951,16 +954,21 @@ export default function ChatPanel({
       }
     };
 
-    ws.onerror = () => setWsError("WebSocket error");
+    ws.onerror = () => {
+      console.error("[Chat] WebSocket error");
+      setWsError("WebSocket error");
+    };
     ws.onclose = (ev) => {
+      console.log("[Chat] WebSocket closed", ev.code, ev.reason || "");
       setStreaming(false);
       wsRef.current = null;
       if (ev.code !== 1000 && ev.code !== 1005) {
-        setWsError("Connection closed. Is the backend running on port 3001?");
+        const msg = ev.reason || `Connection closed (code ${ev.code}). Backend may be cold—try again in 30s.`;
+        setWsError(msg);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId && m.streaming
-              ? { ...m, content: "Connection failed. Start the backend and try again.", streaming: false }
+              ? { ...m, content: msg, streaming: false }
               : m
           )
         );
@@ -1446,7 +1454,9 @@ export default function ChatPanel({
           </div>
         ))}
         {wsError && (
-          <p className="text-red-400 text-sm">Connection error. Ensure OpenCode is installed and backend is running.</p>
+          <p className="text-red-400 text-sm" title={wsError}>
+            {wsError}
+          </p>
         )}
         <div ref={bottomRef} />
       </div>
