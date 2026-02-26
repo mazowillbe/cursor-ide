@@ -41,7 +41,7 @@ export async function runOpenCode(
   const opencode = config.openCodePath;
   const modelId = model || config.openCodeDefaultModel;
   const configPath = await getHardcodedAgentConfig(cwd);
-  const backendUrl = `http://${config.host}:${config.port}`;
+  const backendUrl = `http://127.0.0.1:${config.port}`;
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     OPENCODE_CLIENT: "cursor-web",
