@@ -47,15 +47,15 @@ router.get("/projects", requireAuth, async (req: Request, res: Response): Promis
   }
 });
 
-/** Update project name (workspaceId = projectId). */
+/** Update project name and/or description (workspaceId = projectId). Body: { name?: string, description?: string }. */
 router.patch("/:workspaceId/project", requireAuth, async (req, res) => {
   try {
     const { workspaceId } = req.params;
     const userId = (req as Request & { userId: string }).userId;
-    const { name } = req.body as { name?: string };
+    const { name, description } = req.body as { name?: string; description?: string };
 
-    if (!name || typeof name !== "string" || name.trim().length === 0) {
-      res.status(400).json({ error: "name required" });
+    if (!name && description === undefined) {
+      res.status(400).json({ error: "name or description required" });
       return;
     }
 
@@ -82,9 +82,19 @@ router.patch("/:workspaceId/project", requireAuth, async (req, res) => {
       return;
     }
 
+    const updates: { name?: string; description?: string | null; updated_at: string } = {
+      updated_at: new Date().toISOString(),
+    };
+    if (name !== undefined && typeof name === "string" && name.trim().length > 0) {
+      updates.name = name.trim();
+    }
+    if (description !== undefined) {
+      updates.description = typeof description === "string" ? description.trim() || null : null;
+    }
+
     const { error: updateErr } = await supabase
       .from("projects")
-      .update({ name: name.trim(), updated_at: new Date().toISOString() })
+      .update(updates)
       .eq("id", workspaceId);
 
     if (updateErr) {
@@ -92,7 +102,10 @@ router.patch("/:workspaceId/project", requireAuth, async (req, res) => {
       return;
     }
 
-    res.json({ name: name.trim() });
+    res.json({
+      ...(updates.name !== undefined && { name: updates.name }),
+      ...(updates.description !== undefined && { description: updates.description }),
+    });
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
     res.status(500).json({ error: err.message });

@@ -6,6 +6,24 @@ import { GoogleGenAI } from "@google/genai";
 
 const GEMINI_MODEL = "gemini-2.0-flash";
 
+/**
+ * Strip markdown code fences and diff-artifact lines so written file content has no backticks.
+ * Must match backend apply-edit-agent stripCodeFences behavior.
+ */
+function stripCodeFences(raw: string): string {
+  let s = raw.trim();
+  const lines = s.split(/\r?\n/);
+  let start = 0;
+  let end = lines.length;
+  while (start < end && /^\s*`{3}[\w-]*\s*$/.test(lines[start]!)) start += 1;
+  while (start < end && /^\s*[-+]{3}\s*$/.test(lines[start]!)) start += 1;
+  while (end > start && /^\s*`{3}\s*$/.test(lines[end - 1]!)) end -= 1;
+  while (end > start && /^\s*[-+]{3}\s*$/.test(lines[end - 1]!)) end -= 1;
+  s = lines.slice(start, end).join("\n");
+  s = s.replace(/\s*`{3}\s*$/, "");
+  return s.trim();
+}
+
 async function applyEditWithGemini(
   currentContent: string,
   codeEdit: string,
@@ -46,7 +64,7 @@ Return ONLY the complete new file content. No explanations, no markdown fences, 
     throw new Error("Gemini did not return valid content");
   }
 
-  return text;
+  return stripCodeFences(text);
 }
 
 export const ApplyWithGemini: Plugin = async () => {
@@ -73,7 +91,7 @@ export const ApplyWithGemini: Plugin = async () => {
 
           const newContent = await applyEditWithGemini(
             currentContent,
-            args.code_edit,
+            stripCodeFences(args.code_edit),
             args.instructions,
             args.target_file
           );

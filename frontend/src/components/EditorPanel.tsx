@@ -1,8 +1,91 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import Editor, { type OnMount } from "@monaco-editor/react";
+import Editor, { type OnMount, type BeforeMount } from "@monaco-editor/react";
 import { readFile, writeFile, getFileDiff } from "../api/client";
 import type * as Monaco from "monaco-editor";
 import FileIcon from "./FileIcon";
+
+/** Cursor IDE dark theme: blue keywords, cyan types, orange strings, yellow functions. */
+function defineCursorDarkTheme(monaco: typeof Monaco): void {
+  const keywordBlue = "#569CD6";
+  const typeCyan = "#4EC9B0";
+  const variableLightBlue = "#9CDCFE";
+  const stringOrange = "#CE9178";
+  const functionYellow = "#DCDCAA";
+  const white = "#D4D4D4";
+  const commentGreen = "#6A9955";
+  const numberGreen = "#B5CEA8";
+
+  monaco.editor.defineTheme("cursor-dark", {
+    base: "vs-dark",
+    inherit: false,
+    semanticHighlighting: false,
+
+    rules: [
+      { token: "", foreground: white },
+      { token: "keyword", foreground: keywordBlue },
+      { token: "keyword.control", foreground: keywordBlue },
+      { token: "keyword.operator", foreground: white },
+      { token: "storage", foreground: keywordBlue },
+      { token: "storage.type", foreground: keywordBlue },
+
+      { token: "string", foreground: stringOrange },
+      { token: "string.escape", foreground: "#D7BA7D" },
+
+      { token: "comment", foreground: commentGreen },
+      { token: "comment.doc", foreground: commentGreen },
+
+      { token: "number", foreground: numberGreen },
+      { token: "constant.numeric", foreground: numberGreen },
+
+      { token: "type", foreground: typeCyan },
+      { token: "type.identifier", foreground: typeCyan },
+      { token: "class", foreground: typeCyan },
+      { token: "support.class", foreground: typeCyan },
+      { token: "entity.name.type", foreground: typeCyan },
+
+      { token: "function", foreground: functionYellow },
+      { token: "support.function", foreground: functionYellow },
+      { token: "entity.name.function", foreground: functionYellow },
+
+      { token: "variable", foreground: variableLightBlue },
+      { token: "variable.parameter", foreground: variableLightBlue },
+      { token: "variable.other", foreground: variableLightBlue },
+
+      { token: "constant", foreground: variableLightBlue },
+      { token: "support.constant", foreground: variableLightBlue },
+      { token: "constant.language", foreground: keywordBlue },
+
+      { token: "tag", foreground: keywordBlue },
+      { token: "attribute.name", foreground: variableLightBlue },
+
+      { token: "delimiter", foreground: white },
+      { token: "delimiter.bracket", foreground: white },
+      { token: "identifier", foreground: white },
+      { token: "operator", foreground: white },
+    ],
+    semanticTokenColors: {
+      variable: "#9CDCFE",
+      parameter: "#9CDCFE",
+      property: "#9CDCFE",
+      function: "#DCDCAA",
+      method: "#DCDCAA",
+      type: "#4EC9B0",
+      class: "#4EC9B0",
+      interface: "#4EC9B0",
+      enum: "#4EC9B0",
+    },
+  
+    colors: {
+      "editor.background": "#1E1E1E",
+      "editor.foreground": "#D4D4D4",
+      "editor.lineHighlightBackground": "#2D2D2D",
+      "editor.lineHighlightBorder": "#2D2D2D",
+      "editorLineNumber.foreground": "#858585",
+      "editorLineNumber.activeForeground": "#C6C6C6",
+    },
+  });
+  monaco.editor.setTheme("cursor-dark");
+}
 
 interface EditorPanelProps {
   workspaceId: string;
@@ -76,6 +159,7 @@ export default function EditorPanel({
   const [error, setError] = useState<string | null>(null);
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const decorationsRef = useRef<string[]>([]);
+  const themeDefinedRef = useRef(false);
 
   const loadFile = useCallback(
     async (path: string) => {
@@ -166,10 +250,23 @@ export default function EditorPanel({
     [workspaceId]
   );
 
+  const handleBeforeMount: BeforeMount = useCallback((monaco) => {
+    defineCursorDarkTheme(monaco);
+    themeDefinedRef.current = true;
+  }, []);
+
   const handleEditorMount: OnMount = useCallback(
-    (editor) => {
+    (editor, monaco) => {
       editorRef.current = editor;
+  
+      defineCursorDarkTheme(monaco);
+      monaco.editor.setTheme("cursor-dark");
+      requestAnimationFrame(() => {
+        monaco.editor.setTheme("cursor-dark");
+      });
+  
       if (activeFilePath) applyGitDecorations(editor, activeFilePath);
+  
       editor.updateOptions({
         scrollbar: {
           verticalScrollbarSize: 6,
@@ -195,7 +292,7 @@ export default function EditorPanel({
 
   return (
     <div className="h-full flex flex-col bg-[#1A1A1A]">
-      <div className="flex-shrink-0 flex items-center border-b border-[#3c3c3c] bg-[#1A1A1A] min-h-[35px]">
+      <div className="flex-shrink-0 flex items-center bg-[#1A1A1A] min-h-[35px]">
         <div className="flex items-center min-w-0 flex-1 overflow-x-auto hide-scrollbar-mini-editor">
           {openFilePaths.map((path) => {
             const isActive = path === activeFilePath;
@@ -210,8 +307,8 @@ export default function EditorPanel({
                 onKeyDown={(e) => e.key === "Enter" && onSelectTab(path)}
                 className={
                   isActive
-                    ? "flex items-center gap-1.5 pl-3 pr-1 py-1.5 border-r border-[#3c3c3c] shrink-0 cursor-pointer bg-[#1A1A1A] text-gray-200"
-                    : "flex items-center gap-1.5 pl-3 pr-1 py-1.5 border-r border-[#3c3c3c] shrink-0 cursor-pointer text-gray-400 hover:bg-[#252525] hover:text-gray-200"
+                    ? "flex items-center gap-1.5 pl-3 pr-1 py-1.5 border-r border-[#3c3c3c] shrink-0 cursor-pointer bg-[#1e1e1e] text-gray-200 border-b-2 border-b-transparent -mb-px"
+                    : "flex items-center gap-1.5 pl-3 pr-1 py-1.5 border-r border-b border-[#3c3c3c] shrink-0 cursor-pointer text-gray-400 hover:bg-[#252525] hover:text-gray-200"
                 }
               >
                 <FileIcon path={path} size={16} className="shrink-0" title={path} />
@@ -246,8 +343,23 @@ export default function EditorPanel({
         )}
       </div>
       {activeFilePath && (
-        <div className="flex-shrink-0 px-3 py-1 border-b border-[#3c3c3c] bg-[#1A1A1A] text-xs text-gray-500 font-mono truncate">
-          {activeFilePath}
+        <div className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 bg-[#1e1e1e] text-sm text-gray-400 font-mono overflow-x-auto hide-scrollbar-mini-editor">
+          {activeFilePath.split(/[/\\]/).filter(Boolean).map((segment, i, parts) => {
+            const isLast = i === parts.length - 1;
+            return (
+              <span key={i} className="flex items-center gap-1 shrink-0">
+                {i > 0 && <span className="text-gray-500 mx-0.5" aria-hidden>&gt;</span>}
+                {isLast ? (
+                  <>
+                    <FileIcon path={activeFilePath} size={14} className="shrink-0" />
+                    <span className="text-gray-400">{segment}</span>
+                  </>
+                ) : (
+                  <span className="text-gray-500">{segment}</span>
+                )}
+              </span>
+            );
+          })}
         </div>
       )}
       <div className="flex-1 min-h-0">
@@ -264,15 +376,16 @@ export default function EditorPanel({
           <Editor
             key={activeFilePath ?? "empty"}
             height="100%"
-            defaultLanguage="plaintext"
+            defaultLanguage="javascript"
             language={activeFilePath ? inferLanguage(activeFilePath) : "plaintext"}
             value={content}
             onChange={(value) => activeFilePath && handleEditorChange(value, activeFilePath)}
-            theme="vs-dark"
+            beforeMount={handleBeforeMount}
             onMount={handleEditorMount}
             options={{
               minimap: { enabled: true, size: "proportional" },
-              fontSize: 13,
+              fontFamily: "Consolas, Monaco, 'Courier New', monospace",
+              fontSize: 14,
               wordWrap: "on",
               automaticLayout: true,
               scrollbar: {
@@ -294,10 +407,10 @@ export default function EditorPanel({
         )}
       </div>
       <style>{`
-        .git-line-added { background: rgba(0, 122, 204, 0.15); }
-        .git-line-added::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #4ec9b0; }
-        .git-line-modified { background: rgba(122, 82, 0, 0.15); }
-        .git-line-modified::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #dcdcaa; }
+        .git-line-added { background: rgba(52, 75, 51, 0.45); }
+        .git-line-added::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #6ABE70; }
+        .git-line-modified { background: rgba(75, 43, 51, 0.45); }
+        .git-line-modified::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #CB5661; }
       `}</style>
     </div>
   );

@@ -8,6 +8,7 @@ import path from "path";
 import fs from "fs/promises";
 import {
   getWorkspacePath,
+  findProjectRoot,
   readFile,
   writeFile,
   listWorkspaceFiles,
@@ -16,7 +17,13 @@ import {
   type WorkspaceId,
 } from "./workspace.js";
 import {
+  isCommandAllowed,
+  isCommandAttemptingEscape,
+  DEFAULT_COMMAND_TIMEOUT_MS,
+} from "./command-sandbox.js";
+import {
   isDevServerCommand,
+  DEV_SERVER_INITIAL_OUTPUT_MS,
   killExistingDevServer,
   registerDevServerProcess,
   unregisterDevServerProcess,
@@ -141,34 +148,84 @@ export async function executeTool(
             "You can only stop processes started in this workspace. To stop the dev server for this project, ask to stop it and I will stop only that process, or close the terminal that is running it.",
         };
       }
+      const projectRoot = findProjectRoot(workspaceId);
+      if (!isCommandAllowed(cmdTrimmed)) {
+        log("run_terminal_cmd: command not on allowlist");
+        return {
+          callId,
+          tool: rawTool,
+          success: false,
+          error:
+            "Command not allowed. Only npm, npx, node, yarn, pnpm, git (and cd within workspace) are permitted.",
+        };
+      }
+      if (isCommandAttemptingEscape(cmdTrimmed, projectRoot)) {
+        log("run_terminal_cmd: command attempts to leave workspace");
+        return {
+          callId,
+          tool: rawTool,
+          success: false,
+          error: "Command may not leave the workspace directory.",
+        };
+      }
       if (isDevServerCommand(cmdTrimmed)) {
         killExistingDevServer(workspaceId);
       }
+      const isDevServer = isDevServerCommand(cmdTrimmed);
       return new Promise<ToolResult>((resolve) => {
         const chunks: string[] = [];
-        const proc = runCommandStream(workspaceId, cmdTrimmed, {
-          onChunk(chunk) {
-            chunks.push(chunk);
-            options?.onStream?.(callId, chunk);
+        let resolved = false;
+        let initialOutputTimer: ReturnType<typeof setTimeout> | undefined;
+        const doResolve = (result: ToolResult) => {
+          if (resolved) return;
+          resolved = true;
+          if (initialOutputTimer != null) {
+            clearTimeout(initialOutputTimer);
+            initialOutputTimer = undefined;
+          }
+          resolve(result);
+        };
+        const proc = runCommandStream(
+          workspaceId,
+          cmdTrimmed,
+          {
+            onChunk(chunk) {
+              chunks.push(chunk);
+              options?.onStream?.(callId, chunk);
+            },
+            onEnd(exitCode) {
+              const code = exitCode ?? 1;
+              options?.onStreamEnd?.(callId, code);
+              if (isDevServer) {
+                unregisterDevServerProcess(workspaceId);
+              }
+              const output = chunks.join("");
+              doResolve({
+                callId,
+                tool: rawTool,
+                success: code === 0,
+                output,
+                exitCode: code,
+              });
+            },
           },
-          onEnd(exitCode) {
-            const code = exitCode ?? 1;
-            options?.onStreamEnd?.(callId, code);
-            if (isDevServerCommand(cmdTrimmed)) {
-              unregisterDevServerProcess(workspaceId);
-            }
-            const output = chunks.join("");
-            resolve({
+          {
+            timeoutMs: isDevServer ? undefined : DEFAULT_COMMAND_TIMEOUT_MS,
+          }
+        );
+        if (isDevServer) {
+          registerDevServerProcess(workspaceId, proc.kill);
+          initialOutputTimer = setTimeout(() => {
+            doResolve({
               callId,
               tool: rawTool,
-              success: code === 0,
-              output,
-              exitCode: code,
+              success: true,
+              output:
+                chunks.join("") ||
+                "(Dev server started. Output will stream in the terminal. If you see errors in the terminal, fix them and re-run if needed.)",
+              exitCode: 0,
             });
-          },
-        });
-        if (isDevServerCommand(cmdTrimmed)) {
-          registerDevServerProcess(workspaceId, proc.kill);
+          }, DEV_SERVER_INITIAL_OUTPUT_MS);
         }
         options?.onSpawn?.(callId, proc.kill);
       });
@@ -280,6 +337,7 @@ export async function executeTool(
       if (typeof codeEdit !== "string") {
         return { callId, tool: rawTool, success: false, error: "Missing code_edit/content" };
       }
+      const codeEditStripped = stripCodeFences(codeEdit);
       let currentContent: string;
       try {
         currentContent = await readFile(workspaceId, targetFile.trim());
@@ -289,14 +347,14 @@ export async function executeTool(
       const applied = await applyEditWithModel(currentContent, {
         target_file: targetFile.trim(),
         instructions,
-        code_edit: codeEdit,
+        code_edit: codeEditStripped,
       });
       const toWrite = stripCodeFences(applied);
       await writeFile(workspaceId, targetFile.trim(), toWrite);
       setLastEdit(workspaceId, {
         target_file: targetFile.trim(),
         instructions,
-        code_edit: codeEdit,
+        code_edit: codeEditStripped,
       });
       log("edit_file ok (apply model)", { path: targetFile });
       // Send written content to UI so the mini file editor can show it (cap size for large files)

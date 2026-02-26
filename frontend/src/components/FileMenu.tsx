@@ -6,6 +6,7 @@ interface FileMenuProps {
   onClose: () => void;
   onNewProject?: () => void;
   onOpenProject?: () => void;
+  onCloseProject?: () => void;
 }
 
 export default function FileMenu({
@@ -14,6 +15,7 @@ export default function FileMenu({
   onClose,
   onNewProject,
   onOpenProject,
+  onCloseProject,
 }: FileMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -62,6 +64,19 @@ export default function FileMenu({
             <FolderIcon />
             Open Project
           </button>
+          {onCloseProject && (
+            <button
+              type="button"
+              onClick={() => {
+                onCloseProject();
+                onClose();
+              }}
+              className="w-full px-3 py-2 text-left text-sm text-gray-300 hover:bg-surface-600 flex items-center gap-2 border-t border-surface-500 mt-1 pt-1"
+            >
+              <CloseIcon />
+              Close current project
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -85,6 +100,14 @@ function FolderIcon() {
         strokeWidth={2}
         d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
       />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
     </svg>
   );
 }

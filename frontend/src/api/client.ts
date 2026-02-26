@@ -17,7 +17,17 @@ export async function createSession(
   if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
   const body = options?.newProject ? JSON.stringify({ new: true }) : undefined;
   const res = await fetch(`${API}/session`, { method: "POST", headers, body });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const text = await res.text();
+    let message = text;
+    try {
+      const json = JSON.parse(text) as { error?: string };
+      if (json?.error) message = json.error;
+    } catch {
+      /* use text as-is */
+    }
+    throw new Error(message);
+  }
   return res.json();
 }
 
@@ -61,6 +71,41 @@ export async function updateProjectName(
     body: JSON.stringify({ name }),
   });
   if (!res.ok) throw new Error(await res.text());
+}
+
+export async function updateProjectDescription(
+  workspaceId: string,
+  description: string,
+  accessToken: string
+): Promise<void> {
+  const res = await fetch(`${API}/${workspaceId}/project`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ description }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export async function cloneRepo(workspaceId: string, url: string): Promise<void> {
+  const res = await fetch(`${API}/${workspaceId}/git/clone`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    let message = text;
+    try {
+      const json = JSON.parse(text) as { error?: string };
+      if (json?.error) message = json.error;
+    } catch {
+      /* use text */
+    }
+    throw new Error(message);
+  }
 }
 
 export async function listFiles(workspaceId: string, dir = "."): Promise<FileNode[]> {

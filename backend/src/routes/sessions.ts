@@ -1,9 +1,33 @@
 import { Router, type Request, type Response } from "express";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createWorkspaceWithId } from "../workspace.js";
 import { createServerClient } from "../lib/supabase/server.js";
 import { requireAuth } from "../lib/auth.js";
 
 const router = Router();
+
+/**
+ * Ensure a row exists in public.profiles for this auth user.
+ * If the DB trigger didn't run (e.g. migrations not applied or user created before trigger),
+ * we create the profile here so workspace insert (owner_id -> profiles.id) succeeds.
+ */
+async function ensureProfileForUser(supabase: SupabaseClient, userId: string): Promise<void> {
+  const { data: existing } = await supabase.from("profiles").select("id").eq("id", userId).single();
+  if (existing) return;
+
+  const { data: authUser, error: authErr } = await supabase.auth.admin.getUserById(userId);
+  if (authErr || !authUser?.user) {
+    throw new Error(authUser?.user ? "Could not load user" : authErr?.message ?? "User not found");
+  }
+  const u = authUser.user;
+  const email = u.email ?? "";
+  const fullName = (u.user_metadata?.full_name as string) ?? "";
+
+  await supabase.from("profiles").upsert(
+    { id: userId, email, full_name: fullName },
+    { onConflict: "id" }
+  );
+}
 
 /**
  * Get or create current session for the user.
@@ -15,7 +39,20 @@ router.post("/session", requireAuth, async (req: Request, res: Response): Promis
   try {
     const userId = (req as Request & { userId: string }).userId;
     const forceNew = (req as Request & { body?: { new?: boolean } }).body?.new === true;
-    const supabase = createServerClient();
+    let supabase;
+    try {
+      supabase = createServerClient();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(503).json({
+        error: msg.includes("must be set")
+          ? "Backend Supabase not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in backend .env"
+          : msg,
+      });
+      return;
+    }
+
+    await ensureProfileForUser(supabase, userId);
 
     let projectId: string;
     let projectName: string;
@@ -110,7 +147,20 @@ router.get("/session/:projectId", requireAuth, async (req: Request, res: Respons
   try {
     const userId = (req as Request & { userId: string }).userId;
     const { projectId } = req.params;
-    const supabase = createServerClient();
+    let supabase;
+    try {
+      supabase = createServerClient();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(503).json({
+        error: msg.includes("must be set")
+          ? "Backend Supabase not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in backend .env"
+          : msg,
+      });
+      return;
+    }
+
+    await ensureProfileForUser(supabase, userId);
 
     const { data: project, error: projErr } = await supabase
       .from("projects")

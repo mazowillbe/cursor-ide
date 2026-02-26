@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from "express";
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
+import fs from "fs/promises";
+import path from "path";
 import { getWorkspacePath, workspaceExists, initGitInWorkspace } from "../workspace.js";
 
 const router = Router();
@@ -95,6 +97,50 @@ router.post("/:workspaceId/git/init", async (req: Request, res: Response): Promi
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
     res.status(500).json({ error: err.message });
+  }
+});
+
+/** Clone a repo into the workspace (workspace must be empty). Body: { url: string }. */
+router.post("/:workspaceId/git/clone", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { workspaceId } = req.params;
+    const url = typeof (req.body as { url?: string }).url === "string" ? (req.body as { url: string }).url.trim() : "";
+    if (!workspaceId) {
+      res.status(400).json({ error: "workspaceId required" });
+      return;
+    }
+    if (!url) {
+      res.status(400).json({ error: "url required" });
+      return;
+    }
+    const exists = await workspaceExists(workspaceId);
+    if (!exists) {
+      res.status(404).json({ error: "Workspace not found" });
+      return;
+    }
+    const cwd = getWorkspacePath(workspaceId);
+    const gitDir = path.join(cwd, ".git");
+    try {
+      await fs.rm(gitDir, { recursive: true, force: true });
+    } catch {
+      /* .git may not exist; ignore */
+    }
+    try {
+      execFileSync("git", ["clone", "--", url, "."], {
+        cwd,
+        encoding: "utf-8",
+        maxBuffer: 1024 * 1024 * 16,
+        stdio: "pipe",
+      });
+    } catch (e) {
+      const err = e as { stderr?: string; message?: string };
+      res.status(400).json({ error: err.stderr || err.message || "Clone failed" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    const err = e as Error;
+    res.status(500).json({ error: err.message ?? "Clone failed" });
   }
 });
 

@@ -19,9 +19,11 @@ export interface MiniTerminalProps {
   output: string;
   /** Show failure icon when Ran. */
   failed?: boolean;
+  /** True when user clicked close (X) — card stays visible but footer shows "Aborted". */
+  aborted?: boolean;
   /** Called when user clicks "show in main terminal". */
   onShowInMainTerminal?: () => void;
-  /** Called when user clicks close (remove this card). */
+  /** Called when user clicks close (card remains; footer shows Aborted). */
   onClose?: () => void;
   /** Called when user clicks X to kill the running process (then onClose is also called). */
   onKill?: () => void;
@@ -98,6 +100,13 @@ const IconFail = () => (
   </svg>
 );
 
+/** Stop icon for aborted */
+const IconAborted = () => (
+  <svg className="w-4 h-4 shrink-0 text-[#F0F0F0]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h12v12H6z" />
+  </svg>
+);
+
 /** Spinner for running state */
 const Spinner = () => (
   <svg className="w-4 h-4 animate-spin shrink-0 text-[#F0F0F0]" fill="none" viewBox="0 0 24 24">
@@ -105,7 +114,7 @@ const Spinner = () => (
   </svg>
 );
 
-export default function MiniTerminal({ label, cmdName, fullCmd, output, failed = false, onShowInMainTerminal, onClose, onKill }: MiniTerminalProps) {
+export default function MiniTerminal({ label, cmdName, fullCmd, output, failed = false, aborted = false, onShowInMainTerminal, onClose, onKill }: MiniTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<{ term: import("xterm").Terminal; dispose: () => void } | null>(null);
   const outputLengthRef = useRef(0);
@@ -149,7 +158,17 @@ export default function MiniTerminal({ label, cmdName, fullCmd, output, failed =
       const fit = new FitAddon();
       t.loadAddon(fit);
       t.open(container);
-      fit.fit();
+      const safeFit = () => {
+        if (disposed || !container.isConnected) return;
+        if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+          try {
+            fit.fit();
+          } catch {
+            /* ignore xterm dimension errors when container is hidden or terminal disposed */
+          }
+        }
+      };
+      safeFit();
 
       const prompt = "\x1b[34m$\x1b[0m " + fullCmd + "\r\n";
       t.write(prompt);
@@ -164,7 +183,7 @@ export default function MiniTerminal({ label, cmdName, fullCmd, output, failed =
         return;
       }
 
-      const ro = new ResizeObserver(() => fit.fit());
+      const ro = new ResizeObserver(() => safeFit());
       ro.observe(container);
 
       terminalRef.current = {
@@ -193,7 +212,7 @@ export default function MiniTerminal({ label, cmdName, fullCmd, output, failed =
     handle.term.write(chunk);
   }, [output]);
 
-  const isRunning = label === "Running";
+  const isRunning = label === "Running" && !aborted;
 
   return (
     <div
@@ -210,7 +229,7 @@ export default function MiniTerminal({ label, cmdName, fullCmd, output, failed =
         </span>
         <div className="flex items-center gap-0.5 shrink-0">
           <IconExpand onClick={onShowInMainTerminal} />
-          <IconKebab onClose={onClose} />
+          {!aborted && <IconKebab onClose={onClose} />}
         </div>
       </div>
 
@@ -225,7 +244,7 @@ export default function MiniTerminal({ label, cmdName, fullCmd, output, failed =
         data-mini-terminal
       />
 
-      {/* Footer: running = "Shift+ Cancel" + icons; completed = checkmark + Success */}
+      {/* Footer: running = "Shift+ Cancel" + icons; completed = checkmark + Success; aborted = Aborted */}
       <div
         className="flex items-center justify-between gap-2 px-3 py-1.5 min-h-[28px] border-t"
         style={{ borderColor: BORDER, backgroundColor: CARD_BG }}
@@ -245,6 +264,11 @@ export default function MiniTerminal({ label, cmdName, fullCmd, output, failed =
               <Spinner />
             </div>
           </>
+        ) : aborted ? (
+          <span className="flex items-center gap-1.5 ml-auto text-[13px]" style={{ color: TEXT }}>
+            <IconAborted />
+            Aborted
+          </span>
         ) : (
           <span className="flex items-center gap-1.5 ml-auto text-[13px]" style={{ color: TEXT }}>
             {failed ? <IconFail /> : <IconCheck />}

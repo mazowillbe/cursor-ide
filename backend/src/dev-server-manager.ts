@@ -31,6 +31,9 @@ const REBUILD_OUTPUT_PATTERNS = [
 
 const killByWorkspace = new Map<string, () => void>();
 
+/** After this many ms we send initial dev server output to the agent (so it can see and fix console errors). Process keeps running. */
+export const DEV_SERVER_INITIAL_OUTPUT_MS = 20_000;
+
 /**
  * Returns true if the command is typically a long-running dev server (npm run dev, vite, etc.).
  */

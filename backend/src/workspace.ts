@@ -152,6 +152,11 @@ export interface RunCommandStreamCallbacks {
   onEnd: (exitCode: number | null) => void;
 }
 
+export interface RunCommandStreamOptions {
+  /** Max run time (ms). Process is killed after this. Omit for no limit. */
+  timeoutMs?: number;
+}
+
 /**
  * If the command is "cd <path> [&&|;] <rest>" and path equals workspacePath (normalized),
  * return <rest> so we don't run a redundant cd that can break on Windows (quoting).
@@ -192,7 +197,8 @@ function stripRedundantCd(command: string, workspacePath: string): string {
 export function runCommandStream(
   workspaceId: WorkspaceId,
   command: string,
-  callbacks: RunCommandStreamCallbacks
+  callbacks: RunCommandStreamCallbacks,
+  options?: RunCommandStreamOptions
 ): { kill: () => void } {
   const cwd = findProjectRoot(workspaceId);
   const commandToRun = stripRedundantCd(command, cwd);
@@ -205,9 +211,23 @@ export function runCommandStream(
     stdio: ["ignore", "pipe", "pipe"],
   });
   let ended = false;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  if (options?.timeoutMs != null && options.timeoutMs > 0) {
+    timeoutId = setTimeout(() => {
+      if (ended) return;
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        // already dead
+      }
+      callbacks.onChunk("\n[Command timed out and was terminated.]\n");
+      finish(-1);
+    }, options.timeoutMs);
+  }
   const finish = (code: number | null) => {
     if (ended) return;
     ended = true;
+    if (timeoutId != null) clearTimeout(timeoutId);
     callbacks.onEnd(code);
   };
   const enc = "utf8";

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { getFileDiff, readFile } from "../api/client";
 import FileIcon from "./FileIcon";
 
-/* Match App.jsx-style diff card: dark grey card, light blue pill, white filename, monospace code, desaturated red/green diff. */
+/* Match App.jsx-style diff card: dark grey card, light blue pill, white filename, monospace code. */
+/* Diff: full-line green for additions, red for removals (like Cursor/VS Code diff view). */
 const CARD_BG = "#1e1e1e";
 const HEADER_BG = "#252526";
 const CONTENT_BG = "#1e1e1e";
@@ -15,7 +16,7 @@ const CODE_FONT = "Consolas, Menlo, 'Courier New', monospace";
 const CODE_FONT_SIZE = "13px";
 const DIFF_REMOVE_BG = "#4B2B33";
 const DIFF_REMOVE_BORDER = "#CB5661";
-const DIFF_ADD_BG = "#334B33";
+const DIFF_ADD_BG = "#2d4a2d";
 const DIFF_ADD_BORDER = "#6ABE70";
 const DIFF_STAT_ADD_COLOR = "#6ABE70";
 const DIFF_STAT_REMOVE_COLOR = "#CB5661";

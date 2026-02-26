@@ -21,6 +21,9 @@ interface LayoutProps {
   onProjectNameChange?: (name: string) => void;
   onNewProject?: () => void;
   onOpenProject?: () => void;
+  onCloseProject?: () => void;
+  /** When true, first user message triggers project naming AI (blank project only). */
+  enableProjectNaming?: boolean;
 }
 
 export default function Layout({
@@ -30,6 +33,8 @@ export default function Layout({
   onProjectNameChange,
   onNewProject,
   onOpenProject,
+  onCloseProject,
+  enableProjectNaming = false,
 }: LayoutProps) {
   const { user, signOut } = useAuth();
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
@@ -134,6 +139,7 @@ export default function Layout({
             onClose={() => setFileMenuOpen(false)}
             onNewProject={onNewProject}
             onOpenProject={onOpenProject}
+            onCloseProject={onCloseProject}
           />
           <span className="font-medium text-sm text-gray-400">Cursor Web</span>
         </div>
@@ -276,6 +282,7 @@ export default function Layout({
               onOpenFile={(path) => path && handleOpenFile(path)}
               onPreviewReady={handlePreviewReady}
               onPreviewRefresh={handlePreviewRefresh}
+              enableProjectNaming={enableProjectNaming}
             />
           </Panel>
         </PanelGroup>

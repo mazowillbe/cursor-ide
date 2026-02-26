@@ -9,14 +9,31 @@ import { GoogleGenAI } from "@google/genai";
 
 const apiKey = process.env.GEMINI_API_KEY;
 
-/** Strip markdown code fences (leading ```lang? and trailing ```) so we get plain content. Handles multiple fence lines. */
+/**
+ * Strip markdown code fences and diff-artifact lines so file content has no backticks or stray headers.
+ * - Removes leading/trailing lines that are only ``` or ```lang (e.g. ```js, ```diff).
+ * - Removes leading lines that are only --- or +++ (unified diff headers the AI sometimes leaves in).
+ * - Trims trailing ``` from the last line if the closing fence was on the same line as content.
+ */
 export function stripCodeFences(raw: string): string {
-  const lines = raw.split(/\r?\n/);
+  let s = raw.trim();
+  const lines = s.split(/\r?\n/);
   let start = 0;
   let end = lines.length;
-  while (start < end && /^\s*```[\w]*\s*$/.test(lines[start]!)) start += 1;
-  while (end > start && /^\s*```\s*$/.test(lines[end - 1]!)) end -= 1;
-  return lines.slice(start, end).join("\n").trim();
+
+  // Strip leading code fence lines (``` or ```lang)
+  while (start < end && /^\s*`{3}[\w-]*\s*$/.test(lines[start]!)) start += 1;
+  // Strip leading diff-artifact lines (--- or +++ only)
+  while (start < end && /^\s*[-+]{3}\s*$/.test(lines[start]!)) start += 1;
+  // Strip trailing code fence lines
+  while (end > start && /^\s*`{3}\s*$/.test(lines[end - 1]!)) end -= 1;
+  // Strip trailing diff-artifact lines
+  while (end > start && /^\s*[-+]{3}\s*$/.test(lines[end - 1]!)) end -= 1;
+
+  s = lines.slice(start, end).join("\n");
+  // Remove closing ``` from end of last line if the AI put it on the same line as content
+  s = s.replace(/\s*`{3}\s*$/, "");
+  return s.trim();
 }
 
 export interface ApplyEditInput {

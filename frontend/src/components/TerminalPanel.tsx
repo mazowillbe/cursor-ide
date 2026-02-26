@@ -70,17 +70,29 @@ function CursorSessionView({ fullCmd, output }: { fullCmd: string; output: strin
       const fit = new FitAddon();
       t.loadAddon(fit);
       t.open(container);
+      let disposed = false;
+      const safeFit = () => {
+        if (disposed || !container.isConnected) return;
+        if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+          try {
+            fit.fit();
+          } catch {
+            /* ignore xterm dimension errors when container is hidden or terminal disposed */
+          }
+        }
+      };
       const prompt = "\x1b[36m$\x1b[0m \x1b[33m" + fullCmd + "\x1b[0m\r\n";
       t.write(prompt);
       const out = stripOutput(output);
       if (out) t.write(out);
-      fit.fit();
+      safeFit();
 
-      const ro = new ResizeObserver(() => fit.fit());
+      const ro = new ResizeObserver(() => safeFit());
       ro.observe(container);
 
       terminalRef.current = {
         dispose() {
+          disposed = true;
           ro.disconnect();
           fit.dispose();
           t.dispose();
@@ -149,7 +161,18 @@ export default function TerminalPanel({
       t.loadAddon(new WebLinksAddon());
 
       t.open(container);
-      fit.fit();
+      let disposed = false;
+      const safeFit = () => {
+        if (disposed || !container.isConnected) return;
+        if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+          try {
+            fit.fit();
+          } catch {
+            /* ignore xterm dimension errors when container is hidden or terminal disposed */
+          }
+        }
+      };
+      safeFit();
       t.clear();
       t.writeln("Terminal — agent commands appear here when you run OpenCode from Chat.");
       t.writeln(`Workspace: ${workspaceId}`);
@@ -157,11 +180,12 @@ export default function TerminalPanel({
       if (writeRef) writeRef.current = (chunk: string) => t.write(chunk);
       onReady?.();
 
-      const resizeObserver = new ResizeObserver(() => fit.fit());
+      const resizeObserver = new ResizeObserver(() => safeFit());
       resizeObserver.observe(container);
 
       terminalRef.current = {
         dispose() {
+          disposed = true;
           if (writeRef) writeRef.current = null;
           resizeObserver.disconnect();
           fit.dispose();

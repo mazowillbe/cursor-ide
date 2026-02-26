@@ -84,6 +84,15 @@ function cleanOutput(str: string): string {
     .replace(/\s*invalid\s+Invalid Tool\s*/gi, " ");
 }
 
+/** For user messages that include image descriptions, return only the text the user sent (not the describe_image output). */
+function getUserVisibleContent(content: string): string {
+  const marker = "\n\n---\n\nUser message: ";
+  const idx = content.indexOf(marker);
+  if (idx !== -1) return content.slice(idx + marker.length).trim();
+  if (/^\[User sent \d+ image\(s\)\. Image descriptions:\]/.test(content.trim())) return "";
+  return content;
+}
+
 /** Extract path from ls command line. e.g. "$ ls -F" -> ".", "$ ls -la ./src" -> "./src" */
 function getLsPath(line: string): string {
   const args = line.replace(/^\$\s*ls\s*/, "").trim().split(/\s+/).filter(Boolean);
@@ -442,6 +451,8 @@ interface ChatPanelProps {
   onPreviewReady?: (url: string, port?: number) => void;
   /** Called when the workspace app rebuilds (e.g. HMR) so the preview iframe can auto-reload. */
   onPreviewRefresh?: () => void;
+  /** When true, first user message triggers project naming AI (blank project only). False for opened or cloned projects. */
+  enableProjectNaming?: boolean;
 }
 
 /** Text chunk from the agent (narrative). */
@@ -525,6 +536,7 @@ export default function ChatPanel({
   onOpenFile,
   onPreviewReady,
   onPreviewRefresh,
+  enableProjectNaming = false,
 }: ChatPanelProps) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -562,7 +574,10 @@ export default function ChatPanel({
           const range = b.startLine != null && b.endLine != null ? ` L${b.startLine} - ${b.endLine}` : "";
           return `Read ${basename}${range}\n`;
         }
-        if (b.tool === "grep") return `Grepped\n${b.content ?? ""}`;
+        if (b.tool === "grep" || b.tool === "grep_search") {
+          const summary = (b as ToolCallBlock).path?.trim() ? `Grepped ${(b as ToolCallBlock).path}\n` : "Grepped\n";
+          return `${summary}${b.content ?? ""}`;
+        }
         if (b.tool === "file_search" && b.path) return `Searched ${b.path}\n${b.content ?? ""}`;
         if ((b.tool === "websearch" || b.tool === "web_search") && b.path) return `Searched web ${b.path}\n${b.content ?? ""}`;
         if ((b.tool === "list" || b.tool === "list_dir" || b.tool === "glob") && b.path !== undefined) {
@@ -618,6 +633,16 @@ export default function ChatPanel({
     setMessages([]);
     setActiveSessionId(null);
     setSessions([]);
+  }, [workspaceId]);
+
+  useEffect(() => {
+    return () => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "abort", workspaceId }));
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
   }, [workspaceId]);
 
   useEffect(() => {
@@ -729,10 +754,12 @@ export default function ChatPanel({
     setStreaming(true);
     setWsError(null);
 
-    const suggestedName = await suggestProjectName(messageToSend).catch(() => null);
-    if (suggestedName && session?.access_token) {
-      updateProjectName(workspaceId, suggestedName, session.access_token).catch(() => {});
-      onSessionTitleUpdate?.(suggestedName);
+    if (enableProjectNaming) {
+      const suggestedName = await suggestProjectName(messageToSend).catch(() => null);
+      if (suggestedName && session?.access_token) {
+        updateProjectName(workspaceId, suggestedName, session.access_token).catch(() => {});
+        onSessionTitleUpdate?.(suggestedName);
+      }
     }
 
     const supabase = createSupabaseClient();
@@ -823,7 +850,7 @@ export default function ChatPanel({
               (b) => b.type === "tool" && ((b as ToolCallBlock).tool === "bash" || (b as ToolCallBlock).tool === "run_terminal_cmd") && (b as ToolCallBlock).pending && (b as ToolCallBlock).command?.trim() === cmd
             );
             if (idx >= 0) (toolBlock as ToolCallBlock).callId = (blocksRef.current[idx] as ToolCallBlock).callId;
-          } else if (idx < 0 && !data.pending && (data.tool === "read_file" || data.tool === "list_dir" || data.tool === "edit_file" || data.tool === "search_replace" || data.tool === "write_file" || data.tool === "file_search" || data.tool === "websearch" || data.tool === "web_search")) {
+          } else if (idx < 0 && !data.pending && (data.tool === "read_file" || data.tool === "list_dir" || data.tool === "edit_file" || data.tool === "search_replace" || data.tool === "write_file" || data.tool === "file_search" || data.tool === "grep_search" || data.tool === "grep" || data.tool === "websearch" || data.tool === "web_search" || data.tool === "delete_file")) {
             const pathMatch = typeof data.path === "string" ? data.path.trim() : "";
             idx = blocksRef.current.findIndex((b) => {
               if (b.type !== "tool") return false;
@@ -1002,7 +1029,10 @@ export default function ChatPanel({
               }
             >
               {m.role === "user"
-                ? (m.content || "")
+                ? (() => {
+                    const visible = getUserVisibleContent(m.content || "");
+                    return visible || "Sent with image(s)";
+                  })()
                 : (() => {
                     if (m.blocks && m.blocks.length > 0) {
                       const blocksToRender = mergeReadBlocks(m.blocks);
@@ -1049,13 +1079,6 @@ export default function ChatPanel({
                             const terminalKey = `${m.id}-${tb.callId}`;
                             if (tb.tool === "bash" || tb.tool === "run_terminal_cmd") {
                               if (tb.command !== undefined) {
-                                if (closedTerminals.has(terminalKey)) {
-                                  return (
-                                    <div key={tb.callId} className="my-1.5 rounded border border-[#3c3c3c] bg-[#252526] px-3 py-2 text-xs text-[#858585]">
-                                      Terminal closed
-                                    </div>
-                                  );
-                                }
                                 const label = tb.pending ? "Running" : "Ran";
                                 const cmdName = commandNameForHeader(tb.command);
                                 return (
@@ -1066,6 +1089,7 @@ export default function ChatPanel({
                                     fullCmd={tb.command}
                                     output={tb.content ?? ""}
                                     failed={tb.failed ?? false}
+                                    aborted={closedTerminals.has(terminalKey)}
                                     onShowInMainTerminal={() => onAddCursorSession?.(tb.command ?? "", tb.content ?? "")}
                                     onClose={() => setClosedTerminals((prev) => new Set([...prev, terminalKey]))}
                                     onKill={() => void killCommand(workspaceId, tb.callId)}
@@ -1190,6 +1214,46 @@ export default function ChatPanel({
                                 </div>
                               );
                             }
+                            if (tb.tool === "grep" || tb.tool === "grep_search") {
+                              const summary = (tb.path ?? tb.command ?? "").trim() || "pattern";
+                              const lineLabel = tb.pending ? "Grepping" : "Grepped";
+                              return (
+                                <div
+                                  key={tb.callId}
+                                  className={`${TOOL_LINE} my-0.5 whitespace-nowrap min-w-0 overflow-hidden`}
+                                  title={`${lineLabel} ${summary}`}
+                                >
+                                  <span className="inline-flex items-baseline gap-1 min-w-0">
+                                    {tb.pending && <span className="shrink-0">{TOOL_SPINNER}</span>}
+                                    <span className="shrink-0 font-medium text-gray-200">{lineLabel}</span>{" "}
+                                    <span className="truncate min-w-0">{summary}</span>
+                                  </span>
+                                </div>
+                              );
+                            }
+                            if (tb.tool === "delete_file") {
+                              const cleanPath = (tb.path ?? "").replace(/^<path>\s*/i, "").trim();
+                              const basename = cleanPath.split(/[/\\]/).pop() || cleanPath || "file";
+                              const lineLabel = tb.pending ? "Deleting" : "Deleted";
+                              const openPath = tb.path && onOpenFile ? () => onOpenFile(toWorkspaceRelative(cleanPath, workspaceId)) : undefined;
+                              const summaryText = `${lineLabel} ${basename}`;
+                              return (
+                                <div key={tb.callId} className={`${TOOL_LINE} my-0.5 whitespace-nowrap min-w-0 overflow-hidden`} title={summaryText}>
+                                  <span className="font-medium text-gray-200">{lineLabel}</span>{" "}
+                                  {openPath ? (
+                                    <button
+                                      type="button"
+                                      onClick={openPath}
+                                      className="hover:text-blue-400 hover:underline cursor-pointer text-left truncate inline-block max-w-full align-baseline"
+                                    >
+                                      {basename}
+                                    </button>
+                                  ) : (
+                                    <span className="truncate inline-block max-w-full">{basename}</span>
+                                  )}
+                                </div>
+                              );
+                            }
                             if (tb.tool === "todowrite" || tb.tool === "todoread") {
                               const todoList = tb.todos && tb.todos.length > 0
                                 ? tb.todos
@@ -1240,7 +1304,7 @@ export default function ChatPanel({
                               );
                             }
                             const label =
-                              tb.tool === "glob" ? "Globbed" : tb.tool === "list" || tb.tool === "list_dir" ? "Listed" : tb.tool === "grep" ? "Grepped" : tb.tool === "file_search" ? "Searched" : tb.tool === "websearch" || tb.tool === "web_search" ? "Searched web" : tb.tool;
+                              tb.tool === "glob" ? "Globbed" : tb.tool === "list" || tb.tool === "list_dir" ? "Listed" : tb.tool === "grep" || tb.tool === "grep_search" ? "Grepped" : tb.tool === "file_search" ? "Searched" : tb.tool === "websearch" || tb.tool === "web_search" ? "Searched web" : tb.tool;
                             const pathOrCmd = tb.path ?? tb.command ?? "";
                             if (closedTerminals.has(terminalKey)) {
                               return (
@@ -1286,17 +1350,11 @@ export default function ChatPanel({
                                       const term = terminals[idx];
                                       if (!term) return null;
                                       const terminalKey = `${m.id}-${i}-${idx}`;
-                                      if (closedTerminals.has(terminalKey)) {
-                                        return (
-                                          <div key={`t-${j}`} className="my-1.5 rounded border border-[#3c3c3c] bg-[#252526] px-3 py-2 text-xs text-[#858585]">
-                                            Terminal closed
-                                          </div>
-                                        );
-                                      }
                                       return (
                                         <MiniTerminal
                                           key={`t-${j}`}
                                           {...term}
+                                          aborted={closedTerminals.has(terminalKey)}
                                           onShowInMainTerminal={() => onAddCursorSession?.(term.fullCmd, term.output)}
                                           onClose={() => setClosedTerminals((prev) => new Set([...prev, terminalKey]))}
                                         />
@@ -1335,13 +1393,6 @@ export default function ChatPanel({
                             const term = terminals[idx];
                             if (!term) return null;
                             const terminalKey = `${m.id}-${idx}`;
-                            if (closedTerminals.has(terminalKey)) {
-                              return (
-                                <div key={`term-${i}-${idx}`} className="my-1.5 rounded border border-[#3c3c3c] bg-[#252526] px-3 py-2 text-xs text-[#858585]">
-                                  Terminal closed
-                                </div>
-                              );
-                            }
                             const isStuckRunning = !m.streaming && term.label === "Running" && !term.output.trim();
                             const effectiveLabel = isStuckRunning ? "Ran" : term.label;
                             const effectiveFailed = isStuckRunning ? false : term.failed;
@@ -1351,6 +1402,7 @@ export default function ChatPanel({
                                 {...term}
                                 label={effectiveLabel}
                                 failed={effectiveFailed}
+                                aborted={closedTerminals.has(terminalKey)}
                                 onShowInMainTerminal={() => onAddCursorSession?.(term.fullCmd, term.output)}
                                 onClose={() => setClosedTerminals((prev) => new Set([...prev, terminalKey]))}
                               />

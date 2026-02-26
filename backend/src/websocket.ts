@@ -835,7 +835,15 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                               ? (inp.query ?? (argsObj as Record<string, unknown>).query ?? inp.path ?? (argsObj as Record<string, unknown>).path)
                               : (rawTool === "websearch" || rawTool === "web_search")
                                 ? (inp.search_term ?? (argsObj as Record<string, unknown>).search_term ?? inp.query ?? (argsObj as Record<string, unknown>).query ?? inp.path)
-                                : (inp.path ?? (argsObj as Record<string, unknown>).path
+                                : (rawTool === "grep_search" || rawTool === "grep")
+                                  ? (() => {
+                                      const q = inp.query ?? (argsObj as Record<string, unknown>).query ?? "";
+                                      const inc = inp.include_pattern ?? (argsObj as Record<string, unknown>).include_pattern ?? "*";
+                                      const queryStr = typeof q === "string" && q.trim() ? q.trim() : "(pattern)";
+                                      const incStr = typeof inc === "string" && inc.trim() ? inc.trim() : "*";
+                                      return `${queryStr} in workspace (${incStr})`;
+                                    })()
+                                  : (inp.path ?? (argsObj as Record<string, unknown>).path
                                 ?? inp.relative_workspace_path ?? (argsObj as Record<string, unknown>).relative_workspace_path
                                 ?? inp.target_file ?? inp.targetFile ?? inp.file_path ?? inp.filePath ?? inp.file ?? inp.filename ?? inp.dir
                                 ?? inp.destination ?? inp.targetPath ?? inp.output_path ?? inp.outputPath ?? inp.relative_path
