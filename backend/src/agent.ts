@@ -2,7 +2,7 @@ import { createRequire } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 import { spawn, type ChildProcess } from "child_process";
-import { getWorkspacePath } from "./workspace.js";
+import { getWorkspacePath, createWorkspaceWithId } from "./workspace.js";
 import { getHardcodedAgentConfig } from "./agent-config.js";
 
 const require = createRequire(import.meta.url);
@@ -36,6 +36,7 @@ export async function runOpenCode(
   opencodeSessionId?: string,
   chatSessionId?: string
 ): Promise<ProcessHandle> {
+  await createWorkspaceWithId(workspaceId);
   const cwd = getWorkspacePath(workspaceId);
   const opencode = config.openCodePath;
   const modelId = model || config.openCodeDefaultModel;
