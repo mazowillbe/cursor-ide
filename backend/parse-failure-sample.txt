@@ -1,0 +1,8 @@
+# First parse failure - raw line (first 4000 chars):
+{"type":"tool_use","timestamp":1772064571975,"sessionID":"ses_368bb3926ffe8JZgMIFvohMBIq","part":{"id":"prt_c97477f2b0011Qzlc42daKVZRz","sessionID":"ses_368bb3926ffe8JZgMIFvohMBIq","messageID":"msg_c97477747001GYMRGfq52Ojd4W","type":"tool","callID":"call_function_0lqw88pf5pqu_1","tool":"run_terminal_cmd","state":{"status":"completed","input":{"command":"git -C \"C:\\Users\\mazwi\\Desktop\\cursor-web\\backend\\workspaces\\d63209f4-17c3-44dc-bb6d-491ba661ab84\" commit -m \"Initial commit\"","is_background":false},"output":"fatal: cannot change to '\"C:\\Users\\mazwi\\Desktop\\cursor-web\\backend\\workspaces\\d63209f4-17c3-44dc-bb6d-491ba661ab84\"': Invalid argument\n\nError: Tool failed","title":"","metadata":{"truncated":false},"time":{"start":1772064571741,"end":1772064571971}}}}
+
+# After fixPartArrayShape (first 4000 chars):
+{"type":"tool_use","timestamp":1772064571975,"sessionID":"ses_368bb3926ffe8JZgMIFvohMBIq","part":{"id":"prt_c97477f2b0011Qzlc42daKVZRz","sessionID":"ses_368bb3926ffe8JZgMIFvohMBIq","messageID":"msg_c97477747001GYMRGfq52Ojd4W","type":"tool","callID":"call_function_0lqw88pf5pqu_1","tool":"run_terminal_cmd","state":{"status":"completed","input":{"command":"git -C \"C:\\Users\\mazwi\\Desktop\\cursor-web\\backend\\workspaces\\d63209f4-17c3-44dc-bb6d-491ba661ab84\" commit -m \"Initial commit\\,"is_background":false},"output":"fatal: cannot change to "\"C:\\Users\\mazwi\\Desktop\\cursor-web\\backend\\workspaces\\d63209f4-17c3-44dc-bb6d-491ba661ab84\"': Invalid argument\n\nError: Tool failed","title":,"metadata":{"truncated":false},"time":{"start":1772064571741,"end":1772064571971}}}}
+
+# Error:
+Could not parse JSON line: Object key expected at position 652

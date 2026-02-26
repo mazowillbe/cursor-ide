@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build output
+backend/dist/
+frontend/dist/
+
+# Workspaces (user/agent-created projects, can contain nested repos)
+backend/workspaces/
+workspaces/
+
+# IDE / OS
+.idea/
+.vscode/
+*.log
+.DS_Store
+Thumbs.db
+
+# Vite
+frontend/.vite/
+
+# Supabase
+.supabase/
+
+# Test / temp
+*.tmp
+.cache/
