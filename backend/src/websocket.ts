@@ -663,6 +663,7 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
           const key = `${workspaceId}:${Date.now()}`;
           console.log("[agent] run requested, workspace:", workspaceId, "continuing:", !!opencodeSessionId, "message length:", messageToSend.length);
           registerSessionSocket(workspaceId, chatSessionId, ws);
+          let noResponseTimer: ReturnType<typeof setTimeout> | null = null;
           try {
             let chunkCount = 0;
             let ended = false;
@@ -671,6 +672,18 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
               ended = true;
               running.delete(key);
             };
+            const NO_RESPONSE_TIMEOUT_MS = 120_000;
+            noResponseTimer = setTimeout(() => {
+              noResponseTimer = null;
+              if (chunkCount === 0 && !ended && ws.readyState === ws.OPEN) {
+                console.error("[agent] No response from OpenCode within", NO_RESPONSE_TIMEOUT_MS / 1000, "s");
+                done();
+                ws.send(JSON.stringify({
+                  type: "error",
+                  error: "AI did not respond in time. Check: 1) Backend terminal for errors, 2) OPENCODE_ZEN_API_KEY or GEMINI_API_KEY in backend/.env, 3) First run may take 1–2 min while npx downloads opencode-ai.",
+                }));
+              }
+            }, NO_RESPONSE_TIMEOUT_MS);
                 let jsonlBuffer = "";
                 const JSONL_BUFFER_MAX = 100 * 1024; // 100KB cap to avoid OOM on Render free tier (512MB)
                 let loggedBufferCap = false;
@@ -681,6 +694,10 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                 const useJson = config.openCodeUseJson;
                 const proc = await runOpenCode(workspaceId, messageToSend, {
                   async onData(chunk) {
+                    if (noResponseTimer) {
+                      clearTimeout(noResponseTimer);
+                      noResponseTimer = null;
+                    }
                     chunkCount++;
                     if (chunkCount === 1) {
                       const str = typeof chunk === "string" ? chunk : String(chunk);
@@ -1187,6 +1204,10 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                 }
               },
               onEnd(code) {
+                if (noResponseTimer) {
+                  clearTimeout(noResponseTimer);
+                  noResponseTimer = null;
+                }
                 done();
                 console.log("[agent] process ended, code:", code, "chunks sent:", chunkCount, "tool_call messages sent:", toolCallSendCount);
                 if (ws.readyState === ws.OPEN) {
@@ -1194,6 +1215,10 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                 }
               },
               onError(err) {
+                if (noResponseTimer) {
+                  clearTimeout(noResponseTimer);
+                  noResponseTimer = null;
+                }
                 done();
                 console.error("[agent] OpenCode error:", err.message);
                 if (ws.readyState === ws.OPEN) {
@@ -1203,7 +1228,12 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
             }, msg.model, opencodeSessionId, chatSessionId);
             running.set(key, proc);
           } catch (err) {
+            if (noResponseTimer) {
+              clearTimeout(noResponseTimer);
+              noResponseTimer = null;
+            }
             const message = err instanceof Error ? err.message : String(err);
+            console.error("[agent] runOpenCode failed:", message);
             if (ws.readyState === ws.OPEN) {
               ws.send(JSON.stringify({ type: "error", error: message }));
             }

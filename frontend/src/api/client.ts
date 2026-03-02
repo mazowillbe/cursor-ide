@@ -203,6 +203,19 @@ export async function ensureGitInWorkspace(workspaceId: string): Promise<void> {
 }
 
 /** Get unified diff for a file (working tree vs HEAD). Returns null if not a repo or no diff. */
+export interface LintCounts {
+  errors: number;
+  warnings: number;
+}
+
+export async function getLints(
+  workspaceId: string
+): Promise<{ files: Record<string, LintCounts> }> {
+  const res = await fetch(`${API}/${workspaceId}/lints`);
+  if (!res.ok) return { files: {} };
+  return res.json();
+}
+
 export async function getFileDiff(workspaceId: string, path: string): Promise<string | null> {
   const res = await fetch(
     `${API}/${workspaceId}/git/diff?path=${encodeURIComponent(path)}`
@@ -252,9 +265,26 @@ export function getAgentWebSocketUrl(): string {
     const wsBase = url.replace(/^http/, "ws").replace(/\/$/, "");
     return `${wsBase}/api/agent`;
   }
-  if (import.meta.env.DEV) return "ws://127.0.0.1:3001/api/agent";
-  const base = window.location.origin.replace(/^http/, "ws");
-  return `${base}/api/agent`;
+  if (import.meta.env.DEV) {
+    return `ws://127.0.0.1:3001/api/agent`;
+  }
+  const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
+  const host = typeof window !== "undefined" ? window.location.host : "127.0.0.1:3001";
+  return `${protocol}//${host}/api/agent`;
+}
+
+export function getTerminalWebSocketUrl(workspaceId: string): string {
+  const url = import.meta.env.VITE_API_URL;
+  if (url && typeof url === "string" && url.trim()) {
+    const wsBase = url.replace(/^http/, "ws").replace(/\/$/, "");
+    return `${wsBase}/api/terminal?workspaceId=${encodeURIComponent(workspaceId)}`;
+  }
+  if (import.meta.env.DEV) {
+    return `ws://127.0.0.1:3001/api/terminal?workspaceId=${encodeURIComponent(workspaceId)}`;
+  }
+  const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
+  const host = typeof window !== "undefined" ? window.location.host : "127.0.0.1:3001";
+  return `${protocol}//${host}/api/terminal?workspaceId=${encodeURIComponent(workspaceId)}`;
 }
 
 /** Request killing a running terminal command (e.g. when user clicks X on the card). */

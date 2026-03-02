@@ -441,16 +441,15 @@ interface ChatPanelProps {
   selectedFilePath: string | null;
   session?: Session | null;
   onAgentComplete?: () => void;
-  onAgentChunk?: (chunk: string) => void;
   onSessionTitleUpdate?: (title: string) => void;
-  /** Add a mini-terminal's output to the main terminal panel (show in main terminal). */
-  onAddCursorSession?: (fullCmd: string, output: string) => void;
   /** Open a file in the editor (path can be absolute; will be normalized for workspace). */
   onOpenFile?: (path: string) => void;
   /** Called when the agent starts a dev server and the backend detects a preview URL (and optional port for iframe key). */
   onPreviewReady?: (url: string, port?: number) => void;
   /** Called when the workspace app rebuilds (e.g. HMR) so the preview iframe can auto-reload. */
   onPreviewRefresh?: () => void;
+  /** Called when AI modifies files or runs commands that may change the workspace. Pass modified file paths for editor refresh. */
+  onWorkspaceChange?: (modifiedPaths?: string[]) => void;
   /** When true, first user message triggers project naming AI (blank project only). False for opened or cloned projects. */
   enableProjectNaming?: boolean;
 }
@@ -477,6 +476,55 @@ export interface ToolCallBlock {
   endLine?: number;
   /** For todowrite/todoread: list of tasks (id, content, status). */
   todos?: { id: string; content: string; status?: string }[];
+}
+
+const EXPLORATION_TOOLS = new Set([
+  "read_file",
+  "read",
+  "file_search",
+  "grep_search",
+  "grep",
+  "codebase_search",
+  "websearch",
+  "web_search",
+  "list_dir",
+  "list",
+  "glob",
+]);
+
+function isExplorationTool(tool: string): boolean {
+  return EXPLORATION_TOOLS.has(tool);
+}
+
+type MergedBlock = { type: "text"; content: string } | ToolCallBlock;
+
+/** Group consecutive exploration blocks (read, search, grep, etc.) for collapsible "Explored X files Y searches" display. */
+function groupExplorationBlocks(blocks: MergedBlock[]): (MergedBlock | { type: "exploration_group"; blocks: ToolCallBlock[] })[] {
+  const out: (MergedBlock | { type: "exploration_group"; blocks: ToolCallBlock[] })[] = [];
+  let run: ToolCallBlock[] = [];
+
+  function flushRun() {
+    if (run.length >= 2) {
+      out.push({ type: "exploration_group", blocks: [...run] });
+    } else if (run.length === 1) {
+      out.push(run[0]!);
+    }
+    run = [];
+  }
+
+  for (const b of blocks) {
+    if (b.type === "text") {
+      flushRun();
+      out.push(b);
+    } else if (isExplorationTool(b.tool)) {
+      run.push(b);
+    } else {
+      flushRun();
+      out.push(b);
+    }
+  }
+  flushRun();
+  return out;
 }
 
 /** Merge consecutive read blocks that are split as "App" + ".jsx" or "App" + "App.jsx" (with range) into one "Read App.jsx L1-59". */
@@ -529,12 +577,11 @@ export default function ChatPanel({
   selectedFilePath,
   session,
   onAgentComplete,
-  onAgentChunk,
   onSessionTitleUpdate,
-  onAddCursorSession,
   onOpenFile,
   onPreviewReady,
   onPreviewRefresh,
+  onWorkspaceChange,
   enableProjectNaming = false,
 }: ChatPanelProps) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -559,6 +606,7 @@ export default function ChatPanel({
   const skipLoadForSessionRef = useRef<string | null>(null);
   const messagesRef = useRef<Message[]>(messages);
   messagesRef.current = messages;
+  const terminalRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /** Serialize blocks to the same format we used to save (for persistence). */
   function blocksToContent(blocks: ContentBlock[]): string {
@@ -700,6 +748,25 @@ export default function ChatPanel({
     }
   };
 
+  const closeSession = async (e: React.MouseEvent, sessionId: string) => {
+    e.stopPropagation();
+    if (!session?.user || !workspaceId) return;
+    const supabase = createSupabaseClient();
+    const { error } = await supabase.from("chat_sessions").delete().eq("id", sessionId);
+    if (error) {
+      console.error("[Chat] Failed to close session:", error);
+      return;
+    }
+    setSessions((prev) => {
+      const next = prev.filter((s) => s.id !== sessionId);
+      if (activeSessionId === sessionId) {
+        setActiveSessionId(next.length > 0 ? next[0]!.id : null);
+        setMessages([]);
+      }
+      return next;
+    });
+  };
+
   const sendMessage = async () => {
     const text = input.trim();
     const hasImages = attachedImages.length > 0;
@@ -820,7 +887,6 @@ export default function ChatPanel({
         if (data.type === "chunk") {
           if (streamBufferRef.current === "") console.log("[Chat] First chunk received");
           const raw = data.data ?? "";
-          onAgentChunk?.(raw);
           const cleaned = cleanOutput(raw);
           streamBufferRef.current += cleaned;
           blocksRef.current = [...blocksRef.current, { type: "text", content: cleaned }];
@@ -879,14 +945,31 @@ export default function ChatPanel({
           setMessages((prev) =>
             prev.map((m) => (m.id === assistantId ? { ...m, blocks: [...blocksRef.current] } : m))
           );
+          if (!data.pending && onWorkspaceChange) {
+            const tool = data.tool ?? "";
+            const pathStr = typeof data.path === "string" ? data.path.trim() : "";
+            const fileModTools = ["edit_file", "write_file", "edit", "write", "search_replace"];
+            const paths = fileModTools.includes(tool) && pathStr
+              ? [toWorkspaceRelative(pathStr, workspaceId)]
+              : undefined;
+            onWorkspaceChange(paths);
+          }
         } else if (data.type === "tool_output_stream") {
           const callId = data.callId;
           const chunk = data.chunk ?? "";
           if (callId && chunk) {
             const idx = blocksRef.current.findIndex((b) => b.type === "tool" && b.callId === callId);
             if (idx >= 0) {
-              blocksRef.current = [...blocksRef.current];
               const block = blocksRef.current[idx] as ToolCallBlock;
+              const isTerminal = block.tool === "bash" || block.tool === "run_terminal_cmd";
+              if (isTerminal && onWorkspaceChange) {
+                if (terminalRefreshTimerRef.current) clearTimeout(terminalRefreshTimerRef.current);
+                terminalRefreshTimerRef.current = setTimeout(() => {
+                  terminalRefreshTimerRef.current = null;
+                  onWorkspaceChange();
+                }, 2000);
+              }
+              blocksRef.current = [...blocksRef.current];
               (blocksRef.current[idx] as ToolCallBlock).content = (block.content ?? "") + chunk;
               setMessages((prev) =>
                 prev.map((m) => (m.id === assistantId ? { ...m, blocks: [...blocksRef.current] } : m))
@@ -899,6 +982,13 @@ export default function ChatPanel({
           if (callId != null) {
             const idx = blocksRef.current.findIndex((b) => b.type === "tool" && b.callId === callId);
             if (idx >= 0) {
+              const block = blocksRef.current[idx] as ToolCallBlock;
+              const isTerminal = block.tool === "bash" || block.tool === "run_terminal_cmd";
+              if (terminalRefreshTimerRef.current) {
+                clearTimeout(terminalRefreshTimerRef.current);
+                terminalRefreshTimerRef.current = null;
+              }
+              if (isTerminal && onWorkspaceChange) onWorkspaceChange();
               blocksRef.current = [...blocksRef.current];
               (blocksRef.current[idx] as ToolCallBlock).pending = false;
               (blocksRef.current[idx] as ToolCallBlock).failed = exitCode !== undefined && exitCode !== 0;
@@ -935,7 +1025,6 @@ export default function ChatPanel({
           onAgentComplete?.();
         } else if (data.type === "error") {
           const errText = data.error || "Unknown error";
-          onAgentChunk?.(`\r\nError: ${errText}\r\n`);
           setMessages((prev) =>
             prev.map((m) => (m.id === assistantId ? { ...m, content: `Error: ${errText}`, streaming: false } : m))
           );
@@ -999,18 +1088,33 @@ export default function ChatPanel({
             </svg>
           </button>
           {sessions.map((s) => (
-            <button
+            <div
               key={s.id}
-              type="button"
-              onClick={() => setActiveSessionId(s.id)}
-              className={`flex-shrink-0 px-2.5 py-1.5 rounded text-xs truncate max-w-[120px] ${
+              className={`flex-shrink-0 flex items-center gap-0.5 rounded text-xs max-w-[140px] ${
                 s.id === activeSessionId
                   ? "bg-surface-600 text-gray-200"
                   : "text-gray-500 hover:bg-surface-600/50 hover:text-gray-400"
               }`}
             >
-              {s.title || "New Chat"}
-            </button>
+              <button
+                type="button"
+                onClick={() => setActiveSessionId(s.id)}
+                className="flex-1 min-w-0 px-2.5 py-1.5 text-left truncate"
+              >
+                {s.title || "New Chat"}
+              </button>
+              <button
+                type="button"
+                onClick={(e) => closeSession(e, s.id)}
+                className="p-1 rounded hover:bg-surface-500/80 opacity-60 hover:opacity-100 shrink-0"
+                title="Close chat"
+                aria-label="Close chat"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           ))}
         </div>
       </div>
@@ -1022,7 +1126,9 @@ export default function ChatPanel({
         )}
         {messages.map((m) => (
           <div key={m.id} className={m.role === "user" ? "text-right" : "text-left"}>
-            <span className="text-xs text-gray-500 block mb-0.5">{m.role === "user" ? "You" : "OpenCode"}</span>
+            {!((m.role === "assistant" && (m.streaming || m.thinking) && !m.content)) && (
+              <span className="text-xs text-gray-500 block mb-0.5">{m.role === "user" ? "You" : "OpenCode"}</span>
+            )}
             {m.role === "assistant" && (m.streaming || m.thinking) && !m.content && (
               <div className="mt-1">
                 <JumpingDots />
@@ -1070,14 +1176,115 @@ export default function ChatPanel({
                       }
                       if (textAcc) merged.push({ type: "text", content: textAcc });
 
+                      const grouped = groupExplorationBlocks(merged);
+
                       const TOOL_SPINNER = (
                         <svg className="w-4 h-4 text-gray-500 animate-spin shrink-0 inline" fill="none" viewBox="0 0 24 24">
                           <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeDasharray="24 16" />
                         </svg>
                       );
+
+                      /** Render a single exploration block (compact line for expanded group view). */
+                      const renderExplorationBlock = (tb: ToolCallBlock) => {
+                        const cleanPath = (tb.path ?? "").replace(/^<path>\s*/i, "").trim();
+                        const basename = cleanPath.split(/[/\\]/).pop() || cleanPath;
+                        const range = tb.startLine != null && tb.endLine != null ? ` L${tb.startLine}-${tb.endLine}` : "";
+                        if (tb.tool === "read" || tb.tool === "read_file") {
+                          const readLabel = tb.pending ? "Reading" : "Read";
+                          const openPath = tb.path && onOpenFile ? () => onOpenFile(toWorkspaceRelative(cleanPath, workspaceId)) : undefined;
+                          return (
+                            <div key={tb.callId} className="text-xs text-gray-400 pl-3 py-0.5 flex items-baseline gap-1 min-w-0">
+                              <span className="shrink-0 font-medium text-gray-300">{readLabel}</span>
+                              {openPath ? (
+                                <button type="button" onClick={openPath} className="hover:text-blue-400 hover:underline cursor-pointer text-left truncate">
+                                  {basename}{range}
+                                </button>
+                              ) : (
+                                <span className="truncate">{basename}{range}</span>
+                              )}
+                            </div>
+                          );
+                        }
+                        if (tb.tool === "file_search") {
+                          const query = (tb.path ?? "").trim() || "query";
+                          const searchLabel = tb.pending ? "Searching" : "Searched";
+                          return (
+                            <div key={tb.callId} className="text-xs text-gray-400 pl-3 py-0.5 flex items-baseline gap-1 min-w-0">
+                              <span className="shrink-0 font-medium text-gray-300">{searchLabel}</span>
+                              <span className="truncate">{query}</span>
+                            </div>
+                          );
+                        }
+                        if (tb.tool === "websearch" || tb.tool === "web_search") {
+                          const searchTerm = (tb.path ?? "").trim() || "query";
+                          const searchLabel = tb.pending ? "Searching" : "Searched";
+                          return (
+                            <div key={tb.callId} className="text-xs text-gray-400 pl-3 py-0.5 flex items-baseline gap-1 min-w-0">
+                              <span className="shrink-0 font-medium text-gray-300">{searchLabel} web</span>
+                              <span className="truncate">{searchTerm}</span>
+                            </div>
+                          );
+                        }
+                        if (tb.tool === "grep" || tb.tool === "grep_search") {
+                          const summary = (tb.path ?? tb.command ?? "").trim() || "pattern";
+                          const lineLabel = tb.pending ? "Grepping" : "Grepped";
+                          return (
+                            <div key={tb.callId} className="text-xs text-gray-400 pl-3 py-0.5 flex items-baseline gap-1 min-w-0">
+                              <span className="shrink-0 font-medium text-gray-300">{lineLabel}</span>
+                              <span className="truncate font-mono">{summary}</span>
+                            </div>
+                          );
+                        }
+                        if (tb.tool === "list" || tb.tool === "list_dir" || tb.tool === "glob") {
+                          const label = tb.tool === "glob" ? "Globbed" : "Listed";
+                          const pathOrPattern = (tb.path ?? tb.command ?? "").trim() || (tb.tool === "glob" ? "pattern" : "path");
+                          const lineLabel = tb.pending ? (tb.tool === "glob" ? "Globbing" : "Listing") : label;
+                          return (
+                            <div key={tb.callId} className="text-xs text-gray-400 pl-3 py-0.5 flex items-baseline gap-1 min-w-0">
+                              <span className="shrink-0 font-medium text-gray-300">{lineLabel}</span>
+                              <span className="truncate">{pathOrPattern}</span>
+                            </div>
+                          );
+                        }
+                        if (tb.tool === "codebase_search") {
+                          const query = (tb.path ?? "").trim() || "query";
+                          const searchLabel = tb.pending ? "Searching" : "Searched";
+                          return (
+                            <div key={tb.callId} className="text-xs text-gray-400 pl-3 py-0.5 flex items-baseline gap-1 min-w-0">
+                              <span className="shrink-0 font-medium text-gray-300">{searchLabel}</span>
+                              <span className="truncate">{query}</span>
+                            </div>
+                          );
+                        }
+                        return null;
+                      };
+
                       return (
                         <>
-                          {merged.map((block, i) => {
+                          {grouped.map((block, i) => {
+                            if (block.type === "exploration_group") {
+                              const { blocks: groupBlocks } = block;
+                              const fileCount = groupBlocks.filter((b) => b.tool === "read" || b.tool === "read_file").length;
+                              const searchCount = groupBlocks.filter((b) =>
+                                b.tool === "file_search" || b.tool === "grep" || b.tool === "grep_search" || b.tool === "codebase_search" || b.tool === "websearch" || b.tool === "web_search"
+                              ).length;
+                              const fileWord = fileCount === 1 ? "file" : "files";
+                              const searchWord = searchCount === 1 ? "search" : "searches";
+                              const summary = `Explored ${fileCount} ${fileWord} ${searchCount} ${searchWord}`;
+                              return (
+                                <details key={`exp-${i}`} className="tool-call my-0.5 group">
+                                  <summary className={`${TOOL_LINE} cursor-pointer hover:text-gray-300 flex items-center gap-1.5`}>
+                                    <span className="font-medium text-gray-200">{summary}</span>
+                                    <svg className="w-3.5 h-3.5 text-gray-500 shrink-0 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                  </summary>
+                                  <div className="mt-1 space-y-0.5">
+                                    {groupBlocks.map((tb) => renderExplorationBlock(tb))}
+                                  </div>
+                                </details>
+                              );
+                            }
                             if (block.type === "text") {
                               const html = formatMarkdownInContent(block.content);
                               return <span key={`t-${i}`} dangerouslySetInnerHTML={{ __html: html }} />;
@@ -1097,7 +1304,6 @@ export default function ChatPanel({
                                     output={tb.content ?? ""}
                                     failed={tb.failed ?? false}
                                     aborted={closedTerminals.has(terminalKey)}
-                                    onShowInMainTerminal={() => onAddCursorSession?.(tb.command ?? "", tb.content ?? "")}
                                     onClose={() => setClosedTerminals((prev) => new Set([...prev, terminalKey]))}
                                     onKill={() => void killCommand(workspaceId, tb.callId)}
                                   />
@@ -1213,8 +1419,10 @@ export default function ChatPanel({
                                   className={`${TOOL_LINE} my-0.5 whitespace-nowrap min-w-0 overflow-hidden`}
                                   title={`${searchLabel} ${query}`}
                                 >
-                                  <span className="font-medium text-gray-200">{searchLabel}</span>{" "}
-                                  <span className="truncate inline-block max-w-full">{query}</span>
+                                  <span className="inline-flex items-baseline gap-1 min-w-0">
+                                    <span className="shrink-0 font-medium text-gray-200">{searchLabel}</span>
+                                    <span className="truncate min-w-0">{query}</span>
+                                  </span>
                                 </div>
                               );
                             }
@@ -1227,8 +1435,10 @@ export default function ChatPanel({
                                   className={`${TOOL_LINE} my-0.5 whitespace-nowrap min-w-0 overflow-hidden`}
                                   title={`${searchLabel} web ${searchTerm}`}
                                 >
-                                  <span className="font-medium text-gray-200">{searchLabel} web</span>{" "}
-                                  <span className="truncate inline-block max-w-full">{searchTerm}</span>
+                                  <span className="inline-flex items-baseline gap-1 min-w-0">
+                                    <span className="shrink-0 font-medium text-gray-200">{searchLabel} web</span>
+                                    <span className="truncate min-w-0">{searchTerm}</span>
+                                  </span>
                                 </div>
                               );
                             }
@@ -1392,7 +1602,6 @@ export default function ChatPanel({
                                           key={`t-${j}`}
                                           {...term}
                                           aborted={closedTerminals.has(terminalKey)}
-                                          onShowInMainTerminal={() => onAddCursorSession?.(term.fullCmd, term.output)}
                                           onClose={() => setClosedTerminals((prev) => new Set([...prev, terminalKey]))}
                                         />
                                       );
@@ -1440,7 +1649,6 @@ export default function ChatPanel({
                                 label={effectiveLabel}
                                 failed={effectiveFailed}
                                 aborted={closedTerminals.has(terminalKey)}
-                                onShowInMainTerminal={() => onAddCursorSession?.(term.fullCmd, term.output)}
                                 onClose={() => setClosedTerminals((prev) => new Set([...prev, terminalKey]))}
                               />
                             );
@@ -1594,14 +1802,11 @@ export default function ChatPanel({
               {models.length === 0 ? (
                 <option value={selectedModel}>Loading models…</option>
               ) : (
-                <>
-                  <option value={models[0]!.id}>Auto</option>
-                  {models.slice(1).map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.label}
-                    </option>
-                  ))}
-                </>
+                models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))
               )}
             </select>
             <div className="ml-auto flex items-center gap-1">

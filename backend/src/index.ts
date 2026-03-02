@@ -15,7 +15,9 @@ import titleRouter from "./routes/title.js";
 import projectNameRouter from "./routes/project-name.js";
 import searchRouter from "./routes/search.js";
 import gitRouter from "./routes/git.js";
+import lintsRouter from "./routes/lints.js";
 import { attachAgentWebSocket } from "./websocket.js";
+import { attachTerminalWebSocket, TERMINAL_WS_PATH } from "./terminal-ws.js";
 import executeToolRouter from "./routes/execute-tool.js";
 import describeImageRouter from "./routes/describe-image.js";
 import { getPreviewProxyRouter } from "./routes/preview-proxy.js";
@@ -41,6 +43,7 @@ async function main() {
   app.use("/api", projectNameRouter);
   app.use("/api", searchRouter);
   app.use("/api", gitRouter);
+  app.use("/api", lintsRouter);
   app.use("/api", executeToolRouter);
   app.use("/api", describeImageRouter);
 
@@ -71,11 +74,19 @@ async function main() {
 
   const server = createServer(app);
 
-  const wss = new WebSocketServer({ noServer: true });
-  attachAgentWebSocket(wss);
+  const agentWss = new WebSocketServer({ noServer: true });
+  const terminalWss = new WebSocketServer({ noServer: true });
+  attachAgentWebSocket(agentWss);
+  attachTerminalWebSocket(terminalWss);
 
   server.on("upgrade", (request, socket, head) => {
     const url = request.url ?? "";
+    if (url.startsWith(TERMINAL_WS_PATH)) {
+      terminalWss.handleUpgrade(request, socket, head, (ws) => {
+        terminalWss.emit("connection", ws, request);
+      });
+      return;
+    }
     if (url.startsWith(PREVIEW_PREFIX)) {
       const match = url.match(/^\/api\/preview\/([^/]+)(\/.*)?$/);
       const workspaceId = match?.[1];
@@ -97,8 +108,8 @@ async function main() {
       return;
     }
     if (url === AGENT_WS_PATH || url.startsWith(AGENT_WS_PATH + "?")) {
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit("connection", ws, request);
+      agentWss.handleUpgrade(request, socket, head, (ws) => {
+        agentWss.emit("connection", ws, request);
       });
     } else {
       socket.destroy();
@@ -109,6 +120,7 @@ async function main() {
   server.listen(config.port, listenHost, () => {
     console.log(`Backend listening on http://${listenHost}:${config.port}`);
     console.log(`WebSocket agent at ws://${listenHost}:${config.port}/api/agent`);
+    console.log(`Terminal WebSocket at ws://${listenHost}:${config.port}/api/terminal`);
     console.log(`Preview proxy at http://${listenHost}:${config.port}/api/preview/:workspaceId/`);
   });
 }

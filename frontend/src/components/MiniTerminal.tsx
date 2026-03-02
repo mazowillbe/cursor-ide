@@ -228,7 +228,7 @@ export default function MiniTerminal({ label, cmdName: _cmdName, fullCmd, output
           {label} command: {headerSummary}
         </span>
         <div className="flex items-center gap-0.5 shrink-0">
-          <IconExpand onClick={onShowInMainTerminal} />
+          {onShowInMainTerminal && <IconExpand onClick={onShowInMainTerminal} />}
           {!aborted && <IconKebab onClose={onClose} />}
         </div>
       </div>

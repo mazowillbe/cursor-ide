@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import Editor from "@monaco-editor/react";
 import { getFileDiff, readFile } from "../api/client";
 import FileIcon from "./FileIcon";
+import * as monaco from "monaco-editor";
+import {
+  defineCursorDarkTheme,
+  applyOrangeDecorations,
+  MONACO_EDITOR_OPTIONS,
+} from "../lib/monacoTheme";
 
 /* Match App.jsx-style diff card: dark grey card, light blue pill, white filename, monospace code. */
 /* Diff: full-line green for additions, red for removals (like Cursor/VS Code diff view). */
@@ -8,9 +15,9 @@ const CARD_BG = "#1e1e1e";
 const HEADER_BG = "#252526";
 const CONTENT_BG = "#1e1e1e";
 const FILENAME_COLOR = "#ffffff";
-const CODE_FG = "#ffffff";
-const CODE_FONT = "Consolas, Menlo, 'Courier New', monospace";
-const CODE_FONT_SIZE = "13px";
+const CODE_FG = "#D4D4D4";
+const CODE_FONT = "'Cascadia Code', Consolas, Monaco, 'Courier New', monospace";
+const CODE_FONT_SIZE = "14px";
 const DIFF_REMOVE_BG = "#4B2B33";
 const DIFF_REMOVE_BORDER = "#CB5661";
 const DIFF_ADD_BG = "#2d4a2d";
@@ -43,21 +50,23 @@ const SPINNER = (
 
 const SIX_LINES_HEIGHT = 108;
 
-/** Interval (ms) between revealing the next 2–3 words when streaming. */
-const STREAM_WORD_INTERVAL_MS = 100;
-/** Number of words to reveal per tick when pending. */
-const STREAM_WORDS_PER_TICK = 3;
-
-/** Get the next 2–3 words from the start of a string (for typewriter effect). */
-function takeNextWords(text: string, count: number): string {
-  const leading = text.match(/^\s*/)?.[0] ?? "";
-  const rest = text.slice(leading.length);
-  const words = rest.split(/\s+/).filter(Boolean);
-  const take = words.slice(0, Math.min(count, words.length));
-  return leading + take.join(" ");
-}
-
 const MAX_SNIPPET_LINES = 80;
+
+function inferLanguage(path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase();
+  const map: Record<string, string> = {
+    js: "javascript",
+    jsx: "javascript",
+    ts: "typescript",
+    tsx: "typescript",
+    json: "json",
+    html: "html",
+    css: "css",
+    md: "markdown",
+    py: "python",
+  };
+  return map[ext ?? ""] ?? "plaintext";
+}
 const MAX_SNIPPET_CHARS = 6000;
 
 /** When edit content is missing, try git diff first, then file content snippet. */
@@ -143,34 +152,9 @@ export default function MiniFileEditor({ path, content, pending, workspaceId }: 
   const pathTrimmed = path.trim();
   const preRef = useRef<HTMLPreElement>(null);
   const prevLenRef = useRef(0);
+  const orangeDecorationsRef = useRef<string[]>([]);
 
-  const contentRef = useRef(content);
-  contentRef.current = content;
-
-  const [displayedContent, setDisplayedContent] = useState("");
-
-  useEffect(() => {
-    if (!pending) setDisplayedContent(content);
-  }, [pending, content]);
-
-  useEffect(() => {
-    if (!pending) return;
-    setDisplayedContent("");
-    const id = setInterval(() => {
-      const target = contentRef.current;
-      setDisplayedContent((prev) => {
-        if (target.length <= prev.length) return prev;
-        const remainder = target.slice(prev.length);
-        const chunk = takeNextWords(remainder, STREAM_WORDS_PER_TICK);
-        if (!chunk) return prev;
-        return prev + chunk;
-      });
-    }, STREAM_WORD_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [pending]);
-
-  const streamedContent = pending ? displayedContent : content;
-  const displayContent = streamedContent || (pending ? "…" : "");
+  const displayContent = content || (pending ? "…" : "");
   const isSuccessOnlyMessage = /^(edit|write)\s+applied\s+successfully\.?$/i.test(displayContent.trim()) || /^done\.?$/i.test(displayContent.trim());
   const effectiveContent = isSuccessOnlyMessage ? "" : displayContent;
   const hasAgentContent = effectiveContent.length > 0;
@@ -189,14 +173,14 @@ export default function MiniFileEditor({ path, content, pending, workspaceId }: 
   const showEmptyMessage = !effectiveContent && !gitDiffFallback && !fileSnippetFallback && !pending;
 
   useEffect(() => {
-    const len = pending ? streamedContent.length : content.length;
+    const len = content.length;
     if (len > prevLenRef.current && preRef.current) {
       prevLenRef.current = len;
       preRef.current.scrollTop = preRef.current.scrollHeight;
     } else if (len <= prevLenRef.current) {
       prevLenRef.current = len;
     }
-  }, [pending, streamedContent.length, content.length]);
+  }, [content.length]);
   const diffSummary =
     !pending ? (
       <span className="tabular-nums shrink-0" style={{ fontSize: "12px", fontWeight: 400, marginLeft: 6 }}>
@@ -247,19 +231,19 @@ export default function MiniFileEditor({ path, content, pending, workspaceId }: 
           msOverflowStyle: "none",
         }}
       >
-        <pre
-          ref={preRef}
-          className="p-3 whitespace-pre-wrap break-words m-0 block"
-          style={{
-            color: CODE_FG,
-            fontFamily: CODE_FONT,
-            fontSize: CODE_FONT_SIZE,
-            minHeight: SIX_LINES_HEIGHT,
-            lineHeight: 1.5,
-          }}
-        >
-          {hasDiff
-            ? diffLines.map((l, i) => (
+        {hasDiff ? (
+          <pre
+            ref={preRef}
+            className="p-3 whitespace-pre-wrap break-words m-0 block"
+            style={{
+              color: CODE_FG,
+              fontFamily: CODE_FONT,
+              fontSize: CODE_FONT_SIZE,
+              minHeight: SIX_LINES_HEIGHT,
+              lineHeight: 1.5,
+            }}
+          >
+            {diffLines.map((l, i) => (
                 <span
                   key={i}
                   className="block pl-2 border-l-4"
@@ -290,26 +274,47 @@ export default function MiniFileEditor({ path, content, pending, workspaceId }: 
                   {l.text || " "}
                   {"\n"}
                 </span>
-              ))
-            : contentToShow ? (
-                <span className="block pl-2" style={{ fontFamily: CODE_FONT, fontSize: CODE_FONT_SIZE, color: CODE_FG }}>
+              ))}
+          </pre>
+        ) : contentToShow ? (
+                <div className="mini-file-editor-monaco h-full min-h-[108px]">
                   {showSnippetLabel && (
-                    <span className="block mb-1" style={{ color: "#858585", fontStyle: "italic", fontSize: "12px" }}>
+                    <div className="px-3 pt-2 pb-1" style={{ color: "#858585", fontStyle: "italic", fontSize: "12px" }}>
                       Code snippet (file content):
-                    </span>
+                    </div>
                   )}
-                  {contentToShow}
-                </span>
-              ) : showEmptyMessage ? (
-                <span
-                  className="block pl-2"
-                  style={{ color: "#858585", fontStyle: "italic", fontSize: "12px", fontFamily: CODE_FONT }}
-                >
+            <Editor
+              height={showSnippetLabel ? 80 : 108}
+                    value={contentToShow}
+                    language={inferLanguage(pathTrimmed)}
+                    theme="cursor-dark"
+                    beforeMount={(m) => {
+                      defineCursorDarkTheme(m);
+                      m.editor.setTheme("cursor-dark");
+                    }}
+                    onMount={(editor) => {
+                      monaco.editor.setTheme("cursor-dark");
+                      applyOrangeDecorations(editor, orangeDecorationsRef);
+                      editor.onDidChangeModelContent(() =>
+                        applyOrangeDecorations(editor, orangeDecorationsRef)
+                      );
+                    }}
+                    options={{
+                      ...MONACO_EDITOR_OPTIONS,
+                      wordWrap: "on",
+                      automaticLayout: true,
+                    }}
+                  />
+                </div>
+        ) : showEmptyMessage ? (
+          <div
+            className="p-3 pl-5"
+            style={{ color: "#858585", fontStyle: "italic", fontSize: "12px", fontFamily: CODE_FONT }}
+          >
                   No diff content — edit was applied but the change snippet wasn’t captured (stream/parse limit).
                   {workspaceId && " Init git in this workspace to see diffs here."}
-                </span>
-              ) : null}
-        </pre>
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -11,8 +11,9 @@ import { getPreviewStatus } from "../api/client";
 import ChatPanel from "./ChatPanel";
 import EditorPanel from "./EditorPanel";
 import SidebarPanel from "./SidebarPanel";
-import TerminalPanel, { type CursorSession } from "./TerminalPanel";
+import TerminalPanel from "./TerminalPanel";
 import FileMenu from "./FileMenu";
+import StatusBar from "./StatusBar";
 
 interface LayoutProps {
   workspaceId: string;
@@ -40,15 +41,14 @@ export default function Layout({
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [fileTreeRefresh, setFileTreeRefresh] = useState(0);
+  const [editorRefreshTrigger, setEditorRefreshTrigger] = useState(0);
+  const [modifiedPaths, setModifiedPaths] = useState<string[]>([]);
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
-  const [cursorSessions, setCursorSessions] = useState<CursorSession[]>([]);
-  const [selectedCursorId, setSelectedCursorId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewPort, setPreviewPort] = useState<number | null>(null);
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
   const [centerView, setCenterView] = useState<"editor" | "preview">("editor");
-  const terminalWriteRef = useRef<((chunk: string) => void) | null>(null);
-  const chunkBufferRef = useRef<string[]>([]);
+  const [statusBarInfo, setStatusBarInfo] = useState<import("./StatusBar").StatusBarEditorInfo | null>(null);
   const sidebarPanelRef = useRef<ImperativePanelHandle | null>(null);
 
   const handlePreviewReady = useCallback((url: string, port?: number) => {
@@ -75,17 +75,14 @@ export default function Layout({
     });
   }, [centerView, workspaceId, previewUrl]);
 
-  const addCursorSession = useCallback((fullCmd: string, output: string) => {
-    const id = `cursor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setCursorSessions((prev) => [...prev, { id, fullCmd, output }]);
-    setSelectedCursorId(id);
-  }, []);
-  const removeCursorSession = useCallback((id: string) => {
-    setCursorSessions((prev) => prev.filter((s) => s.id !== id));
-    setSelectedCursorId((current) => (current === id ? null : current));
-  }, []);
   const handleSidebarCollapse = useCallback(() => {
     sidebarPanelRef.current?.collapse();
+  }, []);
+
+  const handleWorkspaceChange = useCallback((paths?: string[]) => {
+    setFileTreeRefresh((k) => k + 1);
+    setEditorRefreshTrigger((k) => k + 1);
+    setModifiedPaths(paths ?? []);
   }, []);
 
   const handleOpenFile = useCallback((path: string | null) => {
@@ -111,23 +108,6 @@ export default function Layout({
   const handleSelectTab = useCallback((path: string) => {
     setActiveFilePath(path);
   }, []);
-
-  const flushTerminalBuffer = () => {
-    const write = terminalWriteRef.current;
-    if (!write) return;
-    const buf = chunkBufferRef.current;
-    chunkBufferRef.current = [];
-    buf.forEach((chunk) => write(chunk));
-  };
-
-  const handleAgentChunk = (chunk: string) => {
-    const write = terminalWriteRef.current;
-    if (write) {
-      write(chunk);
-    } else {
-      chunkBufferRef.current.push(chunk);
-    }
-  };
 
   return (
     <div className="h-full flex flex-col bg-surface-800 text-gray-200">
@@ -208,19 +188,14 @@ export default function Layout({
                         activeFilePath={activeFilePath}
                         onSelectTab={handleSelectTab}
                         onCloseTab={handleCloseTab}
+                        refreshTrigger={editorRefreshTrigger}
+                        modifiedPaths={modifiedPaths}
+                        onStatusChange={setStatusBarInfo}
                       />
                     </Panel>
                     <PanelResizeHandle className="h-1" />
                     <Panel defaultSize={30} minSize={15} maxSize={70}>
-                      <TerminalPanel
-                        workspaceId={workspaceId}
-                        writeRef={terminalWriteRef}
-                        onReady={flushTerminalBuffer}
-                        cursorSessions={cursorSessions}
-                        selectedCursorId={selectedCursorId}
-                        onSelectCursorSession={setSelectedCursorId}
-                        onRemoveCursorSession={removeCursorSession}
-                      />
+                      <TerminalPanel workspaceId={workspaceId} />
                     </Panel>
                   </PanelGroup>
                 ) : (
@@ -276,17 +251,24 @@ export default function Layout({
               selectedFilePath={activeFilePath}
               session={session}
               onAgentComplete={() => setFileTreeRefresh((k) => k + 1)}
-              onAgentChunk={handleAgentChunk}
               onSessionTitleUpdate={onProjectNameChange}
-              onAddCursorSession={addCursorSession}
               onOpenFile={(path) => path && handleOpenFile(path)}
               onPreviewReady={handlePreviewReady}
               onPreviewRefresh={handlePreviewRefresh}
+              onWorkspaceChange={handleWorkspaceChange}
               enableProjectNaming={enableProjectNaming}
             />
           </Panel>
         </PanelGroup>
       </div>
+      <StatusBar
+        workspaceId={workspaceId}
+        projectName={projectName}
+        activeFilePath={activeFilePath}
+        editorInfo={statusBarInfo}
+        refreshTrigger={fileTreeRefresh}
+        onSyncClick={() => handleWorkspaceChange()}
+      />
     </div>
   );
 }

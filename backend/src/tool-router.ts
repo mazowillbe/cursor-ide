@@ -31,6 +31,7 @@ import {
 import { reapplyEditWithModel } from "./reapply-agent.js";
 import { applyEditWithModel, stripCodeFences } from "./apply-edit-agent.js";
 import { getLastEdit, setLastEdit } from "./last-edit-store.js";
+import { startEdit, endEdit, waitForEditComplete } from "./file-edit-lock.js";
 import type { ToolCall, ToolResult, ExecuteToolOptions, BatchToolResult } from "./types/tools.js";
 
 const LOG_PREFIX = "[tool-router]";
@@ -62,6 +63,19 @@ function normalizeToolName(raw: string): string {
     edit_notebook: "edit_notebook",
   };
   return map[raw] ?? raw;
+}
+
+/**
+ * Normalize escaped sequences in tool args.
+ * Models sometimes send literal \n (backslash+n) instead of actual newlines when outputting JSON.
+ * This converts those to real newlines/tabs so search_replace matches and writes correctly.
+ */
+function unescapeToolString(s: string): string {
+  if (typeof s !== "string") return "";
+  return s
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\r")
+    .replace(/\\t/g, "\t");
 }
 
 /** Parse lint output to count errors. Handles eslint, tsc, and common formats. */
@@ -300,12 +314,14 @@ export async function executeTool(
       if (typeof targetFile !== "string" || !targetFile.trim()) {
         return { callId, tool: rawTool, success: false, error: "Missing target_file" };
       }
+      const pathTrimmed = targetFile.trim();
+      await waitForEditComplete(workspaceId, pathTrimmed);
       console.log(LOG_PREFIX, "read_file args", callId, JSON.stringify(args, null, 0));
       const startLine = (args.start_line_one_indexed as number) ?? (args.startLine as number);
       const endLine =
         (args.end_line_one_indexed_inclusive as number) ?? (args.endLine as number);
       const readEntire = (args.should_read_entire_file as boolean) ?? !startLine;
-      let content = await readFile(workspaceId, targetFile.trim());
+      let content = await readFile(workspaceId, pathTrimmed);
       let actualStart = 1;
       let actualEnd: number;
       if (!readEntire && (typeof startLine === "number" || typeof endLine === "number")) {
@@ -398,33 +414,47 @@ export async function executeTool(
       if (typeof codeEdit !== "string") {
         return { callId, tool: rawTool, success: false, error: "Missing code_edit/content" };
       }
-      const codeEditStripped = stripCodeFences(codeEdit);
-      let currentContent: string;
+      const pathTrimmed = targetFile.trim();
+      startEdit(workspaceId, pathTrimmed);
       try {
-        currentContent = await readFile(workspaceId, targetFile.trim());
-      } catch {
-        currentContent = "";
+        const codeEditStripped = stripCodeFences(codeEdit);
+        let currentContent: string;
+        try {
+          currentContent = await readFile(workspaceId, pathTrimmed);
+        } catch {
+          currentContent = "";
+        }
+        const applied = await applyEditWithModel(currentContent, {
+          target_file: pathTrimmed,
+          instructions,
+          code_edit: codeEditStripped,
+        });
+        const toWrite = stripCodeFences(applied);
+        const MAX_EDIT_OUTPUT_CHARS = 120_000;
+        const outputContent =
+          toWrite.length <= MAX_EDIT_OUTPUT_CHARS
+            ? toWrite
+            : toWrite.slice(0, MAX_EDIT_OUTPUT_CHARS) + "\n\n… (truncated for display)";
+        await writeFile(workspaceId, pathTrimmed, toWrite);
+        if (options?.onStream && outputContent) {
+          const lines = outputContent.split(/\n/);
+          const STREAM_LINE_DELAY_MS = 12;
+          for (let i = 0; i < lines.length; i++) {
+            const chunk = i < lines.length - 1 ? lines[i] + "\n" : (lines[i] || "");
+            if (chunk) options.onStream(callId, chunk);
+            if (i < lines.length - 1) await new Promise((r) => setTimeout(r, STREAM_LINE_DELAY_MS));
+          }
+        }
+        setLastEdit(workspaceId, {
+          target_file: pathTrimmed,
+          instructions,
+          code_edit: codeEditStripped,
+        });
+        log("edit_file ok (apply model)", { path: targetFile });
+        return { callId, tool: rawTool, success: true, output: outputContent };
+      } finally {
+        endEdit(workspaceId, pathTrimmed);
       }
-      const applied = await applyEditWithModel(currentContent, {
-        target_file: targetFile.trim(),
-        instructions,
-        code_edit: codeEditStripped,
-      });
-      const toWrite = stripCodeFences(applied);
-      await writeFile(workspaceId, targetFile.trim(), toWrite);
-      setLastEdit(workspaceId, {
-        target_file: targetFile.trim(),
-        instructions,
-        code_edit: codeEditStripped,
-      });
-      log("edit_file ok (apply model)", { path: targetFile });
-      // Send written content to UI so the mini file editor can show it (cap size for large files)
-      const MAX_EDIT_OUTPUT_CHARS = 120_000;
-      const outputContent =
-        toWrite.length <= MAX_EDIT_OUTPUT_CHARS
-          ? toWrite
-          : toWrite.slice(0, MAX_EDIT_OUTPUT_CHARS) + "\n\n… (truncated for display)";
-      return { callId, tool: rawTool, success: true, output: outputContent };
     }
 
     if (tool === "search_replace") {
@@ -432,37 +462,49 @@ export async function executeTool(
         (args.file_path as string) ??
         (args.path as string) ??
         (args.target_file as string);
-      const oldStr = args.old_string as string;
-      const newStr = args.new_string as string;
+      const oldStr = unescapeToolString(String(args.old_string ?? ""));
+      const newStr = unescapeToolString(String(args.new_string ?? ""));
       if (typeof filePath !== "string" || !filePath.trim()) {
         return { callId, tool: rawTool, success: false, error: "Missing file_path" };
       }
-      if (typeof oldStr !== "string") {
+      if (!oldStr) {
         return { callId, tool: rawTool, success: false, error: "Missing old_string" };
       }
-      if (typeof newStr !== "string") {
-        return { callId, tool: rawTool, success: false, error: "Missing new_string" };
+      const pathTrimmed = filePath.trim();
+      startEdit(workspaceId, pathTrimmed);
+      try {
+        const content = await readFile(workspaceId, pathTrimmed);
+        const first = content.indexOf(oldStr);
+        if (first === -1) {
+          return {
+            callId,
+            tool: rawTool,
+            success: false,
+            error: "old_string not found in file",
+          };
+        }
+        const updated =
+          content.slice(0, first) + newStr + content.slice(first + oldStr.length);
+        const MAX_EDIT_OUTPUT_CHARS = 120_000;
+        const outputContent =
+          updated.length <= MAX_EDIT_OUTPUT_CHARS
+            ? updated
+            : updated.slice(0, MAX_EDIT_OUTPUT_CHARS) + "\n\n… (truncated for display)";
+        await writeFile(workspaceId, pathTrimmed, updated);
+        if (options?.onStream && outputContent) {
+          const lines = outputContent.split(/\n/);
+          const STREAM_LINE_DELAY_MS = 12;
+          for (let i = 0; i < lines.length; i++) {
+            const chunk = i < lines.length - 1 ? lines[i] + "\n" : (lines[i] || "");
+            if (chunk) options.onStream(callId, chunk);
+            if (i < lines.length - 1) await new Promise((r) => setTimeout(r, STREAM_LINE_DELAY_MS));
+          }
+        }
+        log("search_replace ok", { path: filePath });
+        return { callId, tool: rawTool, success: true, output: outputContent };
+      } finally {
+        endEdit(workspaceId, pathTrimmed);
       }
-      const content = await readFile(workspaceId, filePath.trim());
-      const first = content.indexOf(oldStr);
-      if (first === -1) {
-        return {
-          callId,
-          tool: rawTool,
-          success: false,
-          error: "old_string not found in file",
-        };
-      }
-      const updated =
-        content.slice(0, first) + newStr + content.slice(first + oldStr.length);
-      await writeFile(workspaceId, filePath.trim(), updated);
-      log("search_replace ok", { path: filePath });
-      const MAX_EDIT_OUTPUT_CHARS = 120_000;
-      const outputContent =
-        updated.length <= MAX_EDIT_OUTPUT_CHARS
-          ? updated
-          : updated.slice(0, MAX_EDIT_OUTPUT_CHARS) + "\n\n… (truncated for display)";
-      return { callId, tool: rawTool, success: true, output: outputContent };
     }
 
     if (tool === "file_search") {
@@ -537,8 +579,8 @@ export async function executeTool(
       const cellIdx = (args.cell_idx as number) ?? (args.cellIdx as number);
       const isNewCell = (args.is_new_cell as boolean) ?? (args.isNewCell as boolean);
       const cellLanguage = (args.cell_language as string) ?? (args.cellLanguage as string) ?? "python";
-      const oldString = (args.old_string as string) ?? "";
-      const newString = (args.new_string as string) ?? (args.newString as string) ?? "";
+      const oldString = unescapeToolString((args.old_string as string) ?? "");
+      const newString = unescapeToolString((args.new_string as string) ?? (args.newString as string) ?? "");
       if (typeof targetNotebook !== "string" || !targetNotebook.trim()) {
         return { callId, tool: rawTool, success: false, error: "Missing target_notebook" };
       }
