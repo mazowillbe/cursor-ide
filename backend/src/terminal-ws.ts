@@ -20,7 +20,7 @@ function spawnWithPty(ws: WebSocket, cwd: string): ProcHandle | null {
     const args = process.platform === "win32" ? ["/K"] : ["-l"];
     const ptyOpts: Record<string, unknown> = {
       cwd,
-      env: { ...process.env, TERM: "xterm-256color" },
+      env: { ...process.env, TERM: "xterm-256color", NODE_ENV: "development" },
       cols: 80,
       rows: 24,
     };
@@ -48,7 +48,7 @@ function spawnWithPty(ws: WebSocket, cwd: string): ProcHandle | null {
  */
 function spawnWithChildProcess(ws: WebSocket, cwd: string): ProcHandle {
   const shell = process.platform === "win32" ? "cmd.exe" : process.env.SHELL || "bash";
-  const env = { ...process.env, TERM: "xterm-256color" };
+  const env = { ...process.env, TERM: "xterm-256color", NODE_ENV: "development" };
 
   if (process.platform !== "win32") {
     try {

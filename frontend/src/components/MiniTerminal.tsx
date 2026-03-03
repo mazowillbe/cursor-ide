@@ -1,12 +1,13 @@
 import { useEffect, useRef } from "react";
 import "xterm/css/xterm.css";
 
-/** Match reference: dark charcoal card, light text, blue prompt */
-const CARD_BG = "#2D2D30";
+/** Chat/sidebar background; header, footer and terminal body match. Border matches former card bg. */
+const CHAT_BG = "#1A1A1A";
+const EXPLORER_BG = "#1A1A1A";
+const CARD_BORDER = "#2D2D30";
 const TEXT = "#F0F0F0";
 const TEXT_MUTED = "#858585";
 const PROMPT_BLUE = "#569CD6";
-const BORDER = "#3c3c3c";
 
 export interface MiniTerminalProps {
   /** "Running" | "Ran" */
@@ -132,10 +133,10 @@ export default function MiniTerminal({ label, cmdName: _cmdName, fullCmd, output
 
       const t = new Terminal({
         theme: {
-          background: CARD_BG,
+          background: EXPLORER_BG,
           foreground: TEXT,
           cursor: "transparent",
-          black: CARD_BG,
+          black: EXPLORER_BG,
           red: "#f44747",
           green: "#6a9955",
           yellow: "#dcdcaa",
@@ -216,13 +217,13 @@ export default function MiniTerminal({ label, cmdName: _cmdName, fullCmd, output
 
   return (
     <div
-      className="rounded-xl overflow-hidden my-1.5"
-      style={{ backgroundColor: CARD_BG, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }}
+      className="rounded-xl overflow-hidden my-1.5 border-2"
+      style={{ backgroundColor: CHAT_BG, borderColor: CARD_BORDER, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }}
     >
       {/* Header: "Running command: cd, npm run" / "Ran command: cd, npm run" */}
       <div
         className="flex items-center justify-between gap-2 px-3 py-2.5 border-b min-h-[40px]"
-        style={{ borderColor: BORDER }}
+        style={{ borderColor: CARD_BORDER, backgroundColor: CHAT_BG }}
       >
         <span className="text-[13px] font-normal truncate" style={{ color: TEXT }}>
           {label} command: {headerSummary}
@@ -233,13 +234,13 @@ export default function MiniTerminal({ label, cmdName: _cmdName, fullCmd, output
         </div>
       </div>
 
-      {/* Terminal output block (indented feel via padding) */}
+      {/* Terminal output block (same as file explorer background); extra pr for scrollbar clearance */}
       <div
         ref={containerRef}
-        className="mini-terminal-body w-full overflow-hidden pl-3 pr-2 py-2"
+        className="mini-terminal-body w-full overflow-hidden pl-3 pr-4 py-2"
         style={{
           height: SIX_LINES_HEIGHT,
-          backgroundColor: CARD_BG,
+          backgroundColor: EXPLORER_BG,
         }}
         data-mini-terminal
       />
@@ -247,7 +248,7 @@ export default function MiniTerminal({ label, cmdName: _cmdName, fullCmd, output
       {/* Footer: running = "Shift+ Cancel" + icons; completed = checkmark + Success; aborted = Aborted */}
       <div
         className="flex items-center justify-between gap-2 px-3 py-1.5 min-h-[28px] border-t"
-        style={{ borderColor: BORDER, backgroundColor: CARD_BG }}
+        style={{ borderColor: CARD_BORDER, backgroundColor: CHAT_BG }}
       >
         {isRunning ? (
           <>

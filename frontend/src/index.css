@@ -84,12 +84,13 @@ html, body, #root,
   min-height: 120px;
 }
 
-/* Mini terminal: body has fixed height, no scroll (only xterm viewport scrolls to avoid double scrollbar) */
+/* Mini terminal: body has fixed height; xterm viewport scrolls so scrollbar works inside card */
 .mini-terminal-body {
   overflow: hidden;
 }
-/* Terminal viewport: dark slim scrollbar (overrides global for consistency) */
+/* Terminal viewport: ensure scroll works and slim scrollbar visible */
 [data-mini-terminal] .xterm-viewport {
+  overflow-y: auto !important;
   scrollbar-width: thin;
   scrollbar-color: #3c3c3c #1e1e1e;
 }

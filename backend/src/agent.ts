@@ -66,6 +66,7 @@ export async function runOpenCode(
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...zenAuthEnv,
+    NODE_ENV: "development",
     OPENCODE_CLIENT: "cursor-web",
     OPENCODE_CONFIG_DIR: opencodeConfigDir,
     OPENCODE_WORKSPACE_ID: workspaceId,

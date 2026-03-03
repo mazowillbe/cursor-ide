@@ -61,6 +61,7 @@ export async function runOpenCodeAndGetText(
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...zenAuthEnv,
+    NODE_ENV: "development",
     OPENCODE_CLIENT: "cursor-web",
     OPENCODE_CONFIG_DIR: opencodeConfigDir,
     TERM: "dumb",
