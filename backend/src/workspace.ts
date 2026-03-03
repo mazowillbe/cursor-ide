@@ -46,10 +46,11 @@ export function findProjectRoot(workspaceId: WorkspaceId): string {
   return base;
 }
 
-/** Run git init in the workspace so we can track diffs. Safe to call if already a repo. */
+/** Run git init in the workspace so we can track diffs. Skips if .git already exists to avoid re-init warning. */
 export function initGitInWorkspace(workspaceId: WorkspaceId): void {
   const dir = getWorkspacePath(workspaceId);
   if (!existsSync(dir)) return;
+  if (existsSync(path.join(dir, ".git"))) return;
   try {
     execSync("git init -b main", { cwd: dir, encoding: "utf-8" });
   } catch (err) {
@@ -66,12 +67,14 @@ export async function createWorkspace(): Promise<WorkspaceId> {
   return id;
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /** Create workspace folder with a specific ID (e.g. Supabase project ID). */
 export async function createWorkspaceWithId(id: WorkspaceId): Promise<void> {
   await ensureWorkspaceRoot();
   const dir = getWorkspacePath(id);
   await fs.mkdir(dir, { recursive: true });
-  if (config.useSupabaseFiles) {
+  if (config.useSupabaseFiles && UUID_REGEX.test(id)) {
     await syncSupabaseToDisk(id, dir);
   }
   initGitInWorkspace(id);

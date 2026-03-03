@@ -1,0 +1,60 @@
+# Deploy cursor-web to Railway
+
+Backend and frontend are configured for Railway via `backend/railway.toml` and `frontend/railway.toml`.
+
+## 1. Create a Railway project
+
+1. Go to [railway.app](https://railway.app) and sign in.
+2. **New Project** → **Deploy from GitHub repo** → select your `cursor-web` (or `cursor-ide`) repo.
+3. Railway will add one service. We need **two services** (backend + frontend).
+
+## 2. Add the backend service
+
+- If the first service was created from the repo root, either:
+  - **Option A:** In that service, open **Settings** → **Source** → set **Root Directory** to `backend`. Rename the service to `cursor-web-backend`.  
+  - **Option B:** Delete that service and add a new one: **New** → **GitHub Repo** → same repo, set **Root Directory** to `backend`.
+- Backend will use `backend/railway.toml` (Dockerfile). No need to set build/start in the UI.
+- In **Variables**, add (same as Render):
+  - `NODE_ENV` = `production`
+  - `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+  - `OPENCODE_ZEN_API_KEY` or `GEMINI_API_KEY`
+  - `USE_SUPABASE_FILES` = `true`
+  - `NODE_OPTIONS` = `--max-old-space-size=896`
+  - `CORS_ORIGIN` = your frontend URL (e.g. `https://xxx.up.railway.app`) and optionally `http://localhost:5173`
+- Deploy. Copy the backend URL (e.g. `https://cursor-web-backend-production-xxx.up.railway.app`).
+
+## 3. Add the frontend service
+
+- In the same project: **New** → **GitHub Repo** → same repo.
+- Set **Root Directory** to `frontend**. Rename to `cursor-web-frontend`.
+- Frontend will use `frontend/railway.toml` (build + serve).
+- In **Variables**, add:
+  - `VITE_API_URL` = **your backend URL** from step 2 (e.g. `https://cursor-web-backend-production-xxx.up.railway.app`)
+  - `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (same as backend Supabase)
+- Deploy. Copy the frontend URL.
+
+## 4. Point backend CORS at the frontend
+
+- In the **backend** service → **Variables** → set:
+  - `CORS_ORIGIN` = your Railway frontend URL (e.g. `https://cursor-web-frontend-production-xxx.up.railway.app`)
+- Redeploy the backend if needed.
+
+## 5. Deploy from CLI (optional)
+
+After the project and both services exist:
+
+1. Install CLI: `npm i -g @railway/cli`
+2. Log in: `railway login`
+3. Link: `railway link` (choose the project and environment)
+4. Deploy backend: `cd backend && railway up --service cursor-web-backend`
+5. Deploy frontend: `cd frontend && railway up --service cursor-web-frontend`
+
+For CI/CD, create a **Project Token** in Railway (Project → Settings → Tokens) and use:
+
+```bash
+RAILWAY_TOKEN=<project-token> railway up --service <service-name>
+```
+
+---
+
+**Security:** Do not commit `.env` or any file containing tokens. Rotate any token that was ever shared in chat or logs.

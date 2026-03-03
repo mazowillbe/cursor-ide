@@ -141,6 +141,7 @@ export async function writeFileToSupabase(
       {
         project_id: projectId,
         path: d,
+        name: pathBasename(d),
         content: null,
         type: "directory",
       },
@@ -151,6 +152,7 @@ export async function writeFileToSupabase(
     {
       project_id: projectId,
       path: p,
+      name: pathBasename(p),
       content,
       type: "file",
     },
@@ -173,6 +175,7 @@ export async function createFolderInSupabase(
       {
         project_id: projectId,
         path: d,
+        name: pathBasename(d),
         content: null,
         type: "directory",
       },
@@ -213,18 +216,18 @@ export async function syncDiskToSupabase(
   for (const { path: p, content, isDir } of entries) {
     for (const parent of getParentPaths(p)) {
       await supabase.from("files").upsert(
-        { project_id: projectId, path: parent, content: null, type: "directory" },
+        { project_id: projectId, path: parent, name: pathBasename(parent), content: null, type: "directory" },
         { onConflict: "project_id,path" }
       );
     }
     if (isDir) {
       await supabase.from("files").upsert(
-        { project_id: projectId, path: p, content: null, type: "directory" },
+        { project_id: projectId, path: p, name: pathBasename(p), content: null, type: "directory" },
         { onConflict: "project_id,path" }
       );
     } else {
       await supabase.from("files").upsert(
-        { project_id: projectId, path: p, content: content ?? "", type: "file" },
+        { project_id: projectId, path: p, name: pathBasename(p), content: content ?? "", type: "file" },
         { onConflict: "project_id,path" }
       );
     }
@@ -274,4 +277,11 @@ function getParentPaths(filePath: string): string[] {
     out.push(parts.slice(0, i).join("/"));
   }
   return out;
+}
+
+/** Basename for path (e.g. "src/foo.ts" -> "foo.ts", "src" -> "src"). Required by files.name NOT NULL. */
+function pathBasename(p: string): string {
+  const norm = p.replace(/\\/g, "/").replace(/\/$/, "");
+  const idx = norm.lastIndexOf("/");
+  return idx >= 0 ? norm.slice(idx + 1) : norm || ".";
 }
