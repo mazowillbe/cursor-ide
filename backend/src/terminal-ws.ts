@@ -42,12 +42,44 @@ function spawnWithPty(ws: WebSocket, cwd: string): ProcHandle | null {
   }
 }
 
+/**
+ * Spawn a shell with a real PTY using `script` (Linux), so when node-pty
+ * fails (e.g. in Docker) we still get TTY behavior (colors, interactive programs).
+ */
 function spawnWithChildProcess(ws: WebSocket, cwd: string): ProcHandle {
   const shell = process.platform === "win32" ? "cmd.exe" : process.env.SHELL || "bash";
+  const env = { ...process.env, TERM: "xterm-256color" };
+
+  if (process.platform !== "win32") {
+    try {
+      const scriptShell = `${shell} -l`;
+      const child = spawn("script", ["-q", "-c", `exec ${scriptShell}`, "/dev/null"], {
+        cwd,
+        env,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      child.stdout?.setEncoding("utf8");
+      child.stderr?.setEncoding("utf8");
+      child.stdout?.on("data", (d: string) => {
+        if (ws.readyState === 1) ws.send(d);
+      });
+      child.stderr?.on("data", (d: string) => {
+        if (ws.readyState === 1) ws.send(d);
+      });
+      child.on("exit", () => ws.close());
+      return {
+        kill: () => child.kill(),
+        write: (s: string) => child.stdin?.write(s),
+      };
+    } catch {
+      /* script not available, fall through to plain spawn */
+    }
+  }
+
   const args = process.platform === "win32" ? ["/K"] : ["-l"];
   const child = spawn(shell, args, {
     cwd,
-    env: { ...process.env, TERM: "xterm-256color" },
+    env,
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdout?.setEncoding("utf8");

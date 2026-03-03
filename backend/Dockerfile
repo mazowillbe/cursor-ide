@@ -19,7 +19,7 @@ RUN npm prune --omit=dev
 FROM node:20-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git dumb-init gosu \
+    git dumb-init gosu bsdutils \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
