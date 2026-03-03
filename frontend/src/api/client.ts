@@ -299,6 +299,18 @@ export async function killCommand(workspaceId: string, callId: string): Promise<
   return data?.success === true;
 }
 
+/**
+ * URL the browser should use for the preview iframe.
+ * When backend is remote (VITE_API_URL set), use the backend's preview proxy so the iframe can load
+ * the dev server running inside the backend. Otherwise use the raw url (localhost for local dev).
+ */
+export function getPreviewIframeUrl(workspaceId: string, backendReportedUrl: string): string {
+  const base = getApiBase();
+  const root = base.replace(/\/api\/?$/, "").trim();
+  if (root) return `${root}/api/preview/${workspaceId}/`;
+  return backendReportedUrl;
+}
+
 /** Returns the current preview URL and port for a workspace if a dev server is registered. */
 export async function getPreviewStatus(workspaceId: string): Promise<{ url: string; port: number } | null> {
   const res = await fetch(`${API}/preview/status?workspaceId=${encodeURIComponent(workspaceId)}`);

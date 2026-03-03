@@ -7,7 +7,7 @@ import {
   type ImperativePanelHandle,
 } from "react-resizable-panels";
 import { useAuth } from "../contexts/AuthContext";
-import { getPreviewStatus } from "../api/client";
+import { getPreviewStatus, getPreviewIframeUrl } from "../api/client";
 import ChatPanel from "./ChatPanel";
 import EditorPanel from "./EditorPanel";
 import SidebarPanel from "./SidebarPanel";
@@ -69,7 +69,7 @@ export default function Layout({
     if (centerView !== "preview" || previewUrl) return;
     getPreviewStatus(workspaceId).then((status) => {
       if (status) {
-        setPreviewUrl(status.url);
+        setPreviewUrl(getPreviewIframeUrl(workspaceId, status.url));
         setPreviewPort(status.port);
       }
     });

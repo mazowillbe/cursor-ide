@@ -26,6 +26,7 @@ import type { Session } from "@supabase/supabase-js";
 import { createSupabaseClient } from "../lib/supabase/client";
 import {
   getAgentWebSocketUrl,
+  getPreviewIframeUrl,
   listModels,
   generateChatTitle,
   suggestProjectName,
@@ -1005,7 +1006,7 @@ export default function ChatPanel({
             )
           );
         } else if (data.type === "preview_ready" && data.workspaceId === workspaceId && data.url) {
-          onPreviewReady?.(data.url, data.port);
+          onPreviewReady?.(getPreviewIframeUrl(workspaceId, data.url), data.port);
         } else if (data.type === "preview_refresh" && data.workspaceId === workspaceId) {
           onPreviewRefresh?.();
         } else if (data.type === "end") {

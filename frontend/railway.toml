@@ -1,9 +1,8 @@
-# Railway config for cursor-web frontend (static build + serve)
+# Railway config for cursor-web frontend (Docker)
 [build]
-builder = "RAILPACK"
-buildCommand = "npm install && npm run build"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "npm run start"
 healthcheckPath = "/"
 healthcheckTimeout = 30
