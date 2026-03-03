@@ -11,7 +11,7 @@ import { getPreviewStatus, getPreviewIframeUrl, syncWorkspaceFiles } from "../ap
 import ChatPanel from "./ChatPanel";
 import EditorPanel from "./EditorPanel";
 import SidebarPanel from "./SidebarPanel";
-import TerminalPanel from "./TerminalPanel";
+import TerminalPanel, { type CursorSession } from "./TerminalPanel";
 import FileMenu from "./FileMenu";
 import StatusBar from "./StatusBar";
 
@@ -48,7 +48,11 @@ export default function Layout({
   const [previewPort, setPreviewPort] = useState<number | null>(null);
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
   const [centerView, setCenterView] = useState<"editor" | "preview">("editor");
+  const [isMobile, setIsMobile] = useState(false);
+  const [cursorSessions, setCursorSessions] = useState<CursorSession[]>([]);
+  const [selectedCursorId, setSelectedCursorId] = useState<string | null>(null);
   const [statusBarInfo, setStatusBarInfo] = useState<import("./StatusBar").StatusBarEditorInfo | null>(null);
+  const [mobileFileMenuOpen, setMobileFileMenuOpen] = useState(false);
   const sidebarPanelRef = useRef<ImperativePanelHandle | null>(null);
 
   const handlePreviewReady = useCallback((url: string, port?: number) => {
@@ -64,6 +68,15 @@ export default function Layout({
     setPreviewUrl(null);
     setPreviewPort(null);
   }, [workspaceId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia === "undefined") return;
+    const mq = window.matchMedia("(max-width: 768px)");
+    const handle = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    setIsMobile(mq.matches);
+    mq.addEventListener("change", handle);
+    return () => mq.removeEventListener("change", handle);
+  }, []);
 
   useEffect(() => {
     if (centerView !== "preview" || previewUrl) return;
@@ -112,6 +125,206 @@ export default function Layout({
   const handleSelectTab = useCallback((path: string) => {
     setActiveFilePath(path);
   }, []);
+
+  const handleAddCursorSession = useCallback((fullCmd: string, output: string) => {
+    const id = `cursor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setCursorSessions((prev) => [...prev, { id, fullCmd, output }]);
+    setSelectedCursorId(id);
+    setCenterView("editor");
+  }, []);
+
+  const handleRemoveCursorSession = useCallback((id: string) => {
+    setCursorSessions((prev) => prev.filter((s) => s.id !== id));
+    setSelectedCursorId((current) => (current === id ? null : current));
+  }, []);
+
+  if (isMobile) {
+    return (
+      <div className="h-full flex flex-col bg-surface-800 text-gray-200">
+        <header className="flex-shrink-0 h-10 flex items-center justify-between px-3 border-b border-surface-500 bg-surface-700">
+          <button
+            type="button"
+            onClick={() => setMobileFileMenuOpen(true)}
+            className="p-1.5 rounded hover:bg-surface-600 text-gray-300"
+            aria-label="Show file menu"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h10" />
+            </svg>
+          </button>
+          <span className="text-sm font-medium truncate">{projectName}</span>
+          <div className="w-5 h-5" aria-hidden="true" />
+        </header>
+          <div className="flex-1 min-h-0 flex flex-col">
+          {/* Chat / Preview toggle centered at the top in mobile, using icons only */}
+          <div className="flex-shrink-0 flex items-center justify-center gap-2 border-b border-surface-500 bg-surface-700 px-2 py-1">
+            <button
+              type="button"
+              onClick={() => setCenterView("editor")}
+              className={`p-2 rounded-full border text-xs ${
+                centerView === "editor"
+                  ? "bg-surface-600 border-surface-400 text-white"
+                  : "border-transparent text-gray-400 hover:text-gray-200 hover:bg-surface-600/60"
+              }`}
+              aria-label="Chat view"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 10h8M8 14h4m-8 1.5V6a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2H9l-4 3.5z"
+                />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCenterView("preview")}
+              className={`p-2 rounded-full border text-xs flex items-center gap-1.5 ${
+                centerView === "preview"
+                  ? "bg-surface-600 border-surface-400 text-white"
+                  : "border-transparent text-gray-400 hover:text-gray-200 hover:bg-surface-600/60"
+              }`}
+              aria-label="Preview view"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M5 5l14 7-14 7V5z"
+                />
+              </svg>
+              {previewUrl && (
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500" title="Dev server running" />
+              )}
+            </button>
+          </div>
+          <div className="flex-1 min-h-0">
+            {centerView === "preview" ? (
+              <div className="h-full w-full bg-surface-900 flex flex-col min-h-0">
+                {previewUrl ? (
+                  <>
+                    <div className="flex-shrink-0 flex items-center gap-2 px-2 py-1.5 border-b border-surface-600 bg-surface-800">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewRefreshKey((k) => k + 1)}
+                        className="px-2.5 py-1 rounded text-xs text-gray-300 hover:text-white hover:bg-surface-600 border border-white/10"
+                        title="Refresh preview"
+                      >
+                        Refresh
+                      </button>
+                      <a
+                        href={previewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2.5 py-1 rounded text-xs text-gray-300 hover:text-white hover:bg-surface-600 border border-white/10 no-underline"
+                        title="Open in new tab"
+                      >
+                        Open in new tab
+                      </a>
+                    </div>
+                    <div className="flex-1 min-h-0">
+                      <iframe
+                        key={`${previewUrl}-${previewPort ?? ""}-${previewRefreshKey}`}
+                        src={previewUrl}
+                        title="App preview"
+                        className="w-full h-full border-0 bg-white"
+                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center px-4 text-center">
+                    <p className="text-gray-500 text-sm">
+                      Run the dev server (e.g. <code className="bg-surface-700 px-1 rounded">npm run dev</code>) in the agent to see the app preview here.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <ChatPanel
+                workspaceId={workspaceId}
+                selectedFilePath={activeFilePath}
+                session={session}
+                onAgentComplete={() => setFileTreeRefresh((k) => k + 1)}
+                onSessionTitleUpdate={onProjectNameChange}
+                onOpenFile={(path) => path && handleOpenFile(path)}
+                onPreviewReady={handlePreviewReady}
+                onPreviewRefresh={handlePreviewRefresh}
+                onWorkspaceChange={handleWorkspaceChange}
+                onAddCursorSession={handleAddCursorSession}
+                enableProjectNaming={enableProjectNaming}
+              />
+            )}
+          </div>
+        </div>
+        {mobileFileMenuOpen && (
+          <div className="fixed inset-0 z-40 flex">
+            <div className="w-3/4 max-w-xs bg-[#1A1A1A] border-r border-surface-500 shadow-xl flex flex-col">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-surface-500">
+                <span className="text-sm font-medium text-gray-200">File</span>
+                <button
+                  type="button"
+                  onClick={() => setMobileFileMenuOpen(false)}
+                  className="p-1.5 rounded hover:bg-surface-600 text-gray-400"
+                  aria-label="Close menu"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="py-2">
+                {onNewProject && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileFileMenuOpen(false);
+                      onNewProject();
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-surface-600"
+                  >
+                    New project
+                  </button>
+                )}
+                {onOpenProject && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileFileMenuOpen(false);
+                      onOpenProject();
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-surface-600"
+                  >
+                    Open project…
+                  </button>
+                )}
+                {onCloseProject && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileFileMenuOpen(false);
+                      onCloseProject();
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-surface-600"
+                  >
+                    Close project
+                  </button>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="flex-1 bg-black/40"
+              onClick={() => setMobileFileMenuOpen(false)}
+              aria-label="Close file menu overlay"
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="h-full flex flex-col bg-surface-800 text-gray-200">
@@ -199,7 +412,13 @@ export default function Layout({
                     </Panel>
                     <PanelResizeHandle className="h-1" />
                     <Panel defaultSize={30} minSize={15} maxSize={70}>
-                      <TerminalPanel workspaceId={workspaceId} />
+                      <TerminalPanel
+                        workspaceId={workspaceId}
+                        cursorSessions={cursorSessions}
+                        selectedCursorId={selectedCursorId}
+                        onSelectCursorSession={setSelectedCursorId}
+                        onRemoveCursorSession={handleRemoveCursorSession}
+                      />
                     </Panel>
                   </PanelGroup>
                 ) : (
@@ -260,6 +479,7 @@ export default function Layout({
               onPreviewReady={handlePreviewReady}
               onPreviewRefresh={handlePreviewRefresh}
               onWorkspaceChange={handleWorkspaceChange}
+              onAddCursorSession={handleAddCursorSession}
               enableProjectNaming={enableProjectNaming}
             />
           </Panel>

@@ -22,8 +22,8 @@ export interface MiniTerminalProps {
   failed?: boolean;
   /** True when user clicked close (X) — card stays visible but footer shows "Aborted". */
   aborted?: boolean;
-  /** Called when user clicks "show in main terminal". */
-  onShowInMainTerminal?: () => void;
+  /** Called when user clicks "show in main terminal"; receives the full command to run in the main terminal. */
+  onShowInMainTerminal?: (command: string) => void;
   /** Called when user clicks close (card remains; footer shows Aborted). */
   onClose?: () => void;
   /** Called when user clicks X to kill the running process (then onClose is also called). */
@@ -229,7 +229,7 @@ export default function MiniTerminal({ label, cmdName: _cmdName, fullCmd, output
           {label} command: {headerSummary}
         </span>
         <div className="flex items-center gap-0.5 shrink-0">
-          {onShowInMainTerminal && <IconExpand onClick={onShowInMainTerminal} />}
+          {onShowInMainTerminal && <IconExpand onClick={() => onShowInMainTerminal(fullCmd)} />}
           {!aborted && <IconKebab onClose={onClose} />}
         </div>
       </div>

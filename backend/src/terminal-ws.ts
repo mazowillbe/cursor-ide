@@ -128,13 +128,16 @@ export function attachTerminalWebSocket(
         try {
           if (str.startsWith("{")) {
             const msg = JSON.parse(str) as { cols?: number; rows?: number };
-            if (typeof msg.cols === "number" && typeof msg.rows === "number" && procRef.resize) {
-              procRef.resize(msg.cols, msg.rows);
+            if (typeof msg.cols === "number" && typeof msg.rows === "number") {
+              if (procRef.resize) procRef.resize(msg.cols, msg.rows);
               return;
             }
           }
+          // Drop fragments of resize JSON (e.g. s":76,"rows":9}) that can arrive when WS frames split
+          if (/["']rows["']\s*:\s*\d+/.test(str) && /["']col/.test(str)) return;
         } catch {
           /* not JSON */
+          if (/["']rows["']\s*:\s*\d+/.test(str) && /["']col/.test(str)) return;
         }
         procRef.write(str);
       });

@@ -453,6 +453,10 @@ interface ChatPanelProps {
   onWorkspaceChange?: (modifiedPaths?: string[]) => void;
   /** When true, first user message triggers project naming AI (blank project only). False for opened or cloned projects. */
   enableProjectNaming?: boolean;
+  /** Called when user clicks "show in main terminal" on a mini terminal; receives the command to run in the in-app main terminal. */
+  onShowInMainTerminal?: (command: string) => void;
+  /** Optional integration hook (used by Cursor desktop) when user expands a mini terminal; receives full command and captured output. */
+  onAddCursorSession?: (command: string, output: string) => void;
 }
 
 /** Text chunk from the agent (narrative). */
@@ -584,6 +588,8 @@ export default function ChatPanel({
   onPreviewRefresh,
   onWorkspaceChange,
   enableProjectNaming = false,
+  onShowInMainTerminal,
+  onAddCursorSession,
 }: ChatPanelProps) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -1310,15 +1316,23 @@ export default function ChatPanel({
                               if (tb.command !== undefined) {
                                 const label = tb.pending ? "Running" : "Ran";
                                 const cmdName = commandNameForHeader(tb.command);
+                                const output = tb.content ?? "";
+                                const handleShowInMain = onShowInMainTerminal || onAddCursorSession
+                                  ? (cmd: string) => {
+                                      onShowInMainTerminal?.(cmd);
+                                      onAddCursorSession?.(cmd, output);
+                                    }
+                                  : undefined;
                                 return (
                                   <MiniTerminal
                                     key={tb.callId}
                                     label={label}
                                     cmdName={cmdName}
                                     fullCmd={tb.command}
-                                    output={tb.content ?? ""}
+                                    output={output}
                                     failed={tb.failed ?? false}
                                     aborted={closedTerminals.has(terminalKey)}
+                                    onShowInMainTerminal={handleShowInMain}
                                     onClose={() => setClosedTerminals((prev) => new Set([...prev, terminalKey]))}
                                     onKill={() => void killCommand(workspaceId, tb.callId)}
                                   />
@@ -1612,11 +1626,18 @@ export default function ChatPanel({
                                       const term = terminals[idx];
                                       if (!term) return null;
                                       const terminalKey = `${m.id}-${i}-${idx}`;
+                                      const handleShowInMain = onShowInMainTerminal || onAddCursorSession
+                                        ? (cmd: string) => {
+                                            onShowInMainTerminal?.(cmd);
+                                            onAddCursorSession?.(cmd, term.output);
+                                          }
+                                        : undefined;
                                       return (
                                         <MiniTerminal
                                           key={`t-${j}`}
                                           {...term}
                                           aborted={closedTerminals.has(terminalKey)}
+                                          onShowInMainTerminal={handleShowInMain}
                                           onClose={() => setClosedTerminals((prev) => new Set([...prev, terminalKey]))}
                                         />
                                       );
@@ -1657,6 +1678,12 @@ export default function ChatPanel({
                             const isStuckRunning = !m.streaming && term.label === "Running" && !term.output.trim();
                             const effectiveLabel = isStuckRunning ? "Ran" : term.label;
                             const effectiveFailed = isStuckRunning ? false : term.failed;
+                            const handleShowInMain = onShowInMainTerminal || onAddCursorSession
+                              ? (cmd: string) => {
+                                  onShowInMainTerminal?.(cmd);
+                                  onAddCursorSession?.(cmd, term.output);
+                                }
+                              : undefined;
                             return (
                               <MiniTerminal
                                 key={`term-${i}-${idx}`}
@@ -1664,6 +1691,7 @@ export default function ChatPanel({
                                 label={effectiveLabel}
                                 failed={effectiveFailed}
                                 aborted={closedTerminals.has(terminalKey)}
+                                onShowInMainTerminal={handleShowInMain}
                                 onClose={() => setClosedTerminals((prev) => new Set([...prev, terminalKey]))}
                               />
                             );

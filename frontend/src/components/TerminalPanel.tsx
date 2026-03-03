@@ -2,15 +2,76 @@ import { useEffect, useRef, useState } from "react";
 import "xterm/css/xterm.css";
 import { getTerminalWebSocketUrl } from "../api/client";
 
-interface TerminalPanelProps {
-  workspaceId: string;
+export interface CursorSession {
+  id: string;
+  fullCmd: string;
+  output: string;
 }
 
-export default function TerminalPanel({ workspaceId }: TerminalPanelProps) {
+interface TerminalPanelProps {
+  workspaceId: string;
+  /** When set, this text is sent to the terminal (e.g. command from mini terminal "open in main"). */
+  pendingInput?: string | null;
+  /** Called after pendingInput has been sent so the parent can clear it. */
+  onPendingInputConsumed?: () => void;
+  /** Saved Cursor sessions from mini terminal "show in main" actions. */
+  cursorSessions?: CursorSession[];
+  /** Selected session id; null = show live terminal. */
+  selectedCursorId?: string | null;
+  /** Called when user selects a session in the side list. */
+  onSelectCursorSession?: (id: string | null) => void;
+  /** Called when user clicks bin to remove a session. */
+  onRemoveCursorSession?: (id: string) => void;
+}
+
+/** Strip output: trim and collapse excess newlines. */
+function stripOutput(s: string): string {
+  return s
+    .replace(/\r\n/g, "\n")
+    .trim()
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+/** Read-only view for a saved Cursor session (command + output). */
+function CursorSessionView({ fullCmd, output }: { fullCmd: string; output: string }) {
+  const out = stripOutput(output);
+  return (
+    <div className="h-full w-full bg-[#1A1A1A] text-[#d4d4d4] text-xs font-mono p-2 overflow-auto">
+      <div className="text-[#4ec9b0]">
+        $ <span className="text-[#dcdcaa]">{fullCmd}</span>
+      </div>
+      {out && (
+        <pre className="mt-1 whitespace-pre-wrap text-[#d4d4d4]">
+          {out}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+/** Truncate command for side list label. */
+function truncateCmd(cmd: string, maxLen: number = 28): string {
+  if (cmd.length <= maxLen) return cmd;
+  return cmd.slice(0, maxLen - 3) + "...";
+}
+
+export default function TerminalPanel({
+  workspaceId,
+  pendingInput,
+  onPendingInputConsumed,
+  cursorSessions = [],
+  selectedCursorId = null,
+  onSelectCursorSession,
+  onRemoveCursorSession,
+}: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<{ dispose: () => void } | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const [disconnected, setDisconnected] = useState(false);
   const [reconnectKey, setReconnectKey] = useState(0);
+  const [sideListOpen, setSideListOpen] = useState(true);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -66,6 +127,7 @@ export default function TerminalPanel({ workspaceId }: TerminalPanelProps) {
 
       const url = getTerminalWebSocketUrl(workspaceId);
       ws = new WebSocket(url);
+      wsRef.current = ws;
       ws.binaryType = "arraybuffer";
 
       ws.onopen = () => {
@@ -105,6 +167,7 @@ export default function TerminalPanel({ workspaceId }: TerminalPanelProps) {
       terminalRef.current = {
         dispose() {
           disposed = true;
+          wsRef.current = null;
           ws?.close();
           ws = null;
           resizeObserver.disconnect();
@@ -117,8 +180,31 @@ export default function TerminalPanel({ workspaceId }: TerminalPanelProps) {
     return () => {
       terminalRef.current?.dispose();
       terminalRef.current = null;
+      wsRef.current = null;
     };
   }, [workspaceId, reconnectKey]);
+
+  // When "open in main terminal" is used, send the command to the live terminal once the WebSocket is ready.
+  useEffect(() => {
+    if (!pendingInput || !onPendingInputConsumed) return;
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(pendingInput);
+      onPendingInputConsumed();
+      return;
+    }
+    const id = setInterval(() => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(pendingInput);
+        onPendingInputConsumed();
+        clearInterval(id);
+      }
+    }, 50);
+    return () => clearInterval(id);
+  }, [pendingInput, onPendingInputConsumed]);
+
+  const showLive = selectedCursorId === null;
+  const selectedSession = cursorSessions.find((s) => s.id === selectedCursorId) ?? null;
 
   return (
     <div className="h-full flex flex-col bg-[#1A1A1A] border-t border-[#3c3c3c]">
@@ -138,31 +224,101 @@ export default function TerminalPanel({ workspaceId }: TerminalPanelProps) {
               Reconnect
             </button>
           )}
-          <button type="button" className="p-1 rounded hover:bg-white/10" title="New terminal">
+          <button
+            type="button"
+            className="p-1 rounded hover:bg-white/10"
+            title={sideListOpen ? "Hide terminal list" : "Show terminal list"}
+            onClick={() => setSideListOpen((o) => !o)}
+          >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
-          <button type="button" className="p-1 rounded hover:bg-white/10" title="More options">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-            </svg>
-          </button>
-          <button type="button" className="p-1 rounded hover:bg-white/10" title="Maximize">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-            </svg>
-          </button>
-          <button type="button" className="p-1 rounded hover:bg-white/10" title="Close panel">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </button>
         </div>
       </div>
 
-      <div className="flex-1 min-h-0">
-        <div ref={containerRef} className="h-full w-full xterm-container min-h-0" />
+      <div className="flex-1 flex min-h-0">
+        {/* Main area: live terminal (WebSocket) + optional saved session view */}
+        <div className="flex-1 flex flex-col min-w-0 relative">
+          <div
+            ref={containerRef}
+            className={`h-full w-full xterm-container min-h-0 absolute inset-0 ${showLive ? "" : "hidden"}`}
+          />
+          {selectedSession && (
+            <div className={`h-full w-full absolute inset-0 ${showLive ? "hidden" : ""}`}>
+              <CursorSessionView fullCmd={selectedSession.fullCmd} output={selectedSession.output} />
+            </div>
+          )}
+          <div className="flex-shrink-0 text-center py-1 text-xs text-[#858585] border-t border-[#3c3c3c]">
+            Agent terminals are read-only
+          </div>
+        </div>
+
+        {/* Side list: ∞ Cursor (command) */}
+        {sideListOpen && cursorSessions.length > 0 && (
+          <div className="w-[200px] flex-shrink-0 flex flex-col border-l border-[#3c3c3c] bg-[#1A1A1A]">
+            <div className="flex-shrink-0 px-2 py-1.5 text-xs text-[#858585] border-b border-[#3c3c3c]">
+              Sessions
+            </div>
+            <div className="flex-1 overflow-y-auto py-1">
+              <button
+                type="button"
+                onClick={() => onSelectCursorSession?.(null)}
+                className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-white/5 ${
+                  showLive ? "bg-white/10 text-[#d4d4d4]" : "text-[#858585]"
+                }`}
+              >
+                <span className="text-[#858585]">&#9654;</span>
+                <span>Live</span>
+              </button>
+              {cursorSessions.map((s) => (
+                <div
+                  key={s.id}
+                  className={`group w-full flex items-center gap-1 px-3 py-2 text-sm hover:bg-white/5 ${
+                    selectedCursorId === s.id ? "bg-white/10" : ""
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => onSelectCursorSession?.(s.id)}
+                    className="flex-1 min-w-0 text-left flex items-center gap-2 truncate"
+                    title={s.fullCmd}
+                  >
+                    <span className="flex-shrink-0 text-[#569cd6]" aria-hidden>
+                      ∞
+                    </span>
+                    <span
+                      className={`truncate ${
+                        selectedCursorId === s.id ? "text-[#d4d4d4]" : "text-[#858585]"
+                      }`}
+                    >
+                      Cursor ({truncateCmd(s.fullCmd)})
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemoveCursorSession?.(s.id);
+                    }}
+                    className="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-500/20 text-[#858585] hover:text-red-400 transition-opacity"
+                    title="Remove session"
+                    aria-label="Remove session"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
