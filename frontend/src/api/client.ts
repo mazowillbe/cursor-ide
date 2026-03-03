@@ -225,6 +225,14 @@ export async function getFileDiff(workspaceId: string, path: string): Promise<st
   return diff != null && typeof diff === "string" ? diff : null;
 }
 
+/** Sync all workspace files from disk to Supabase (excludes dist/, node_modules, etc.). */
+export async function syncWorkspaceFiles(workspaceId: string): Promise<boolean> {
+  const res = await fetch(`${API}/${workspaceId}/files/sync`, { method: "POST" });
+  if (!res.ok) return false;
+  const data = await res.json();
+  return data?.ok === true;
+}
+
 export interface ModelOption {
   id: string;
   label: string;

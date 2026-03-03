@@ -6,7 +6,10 @@ import {
   deletePath,
   createFolder,
   workspaceExists,
+  getWorkspacePath,
 } from "../workspace.js";
+import { syncDiskToSupabase } from "../workspace-supabase.js";
+import { config } from "../config.js";
 
 const router = Router();
 
@@ -108,6 +111,32 @@ router.delete("/:workspaceId/file", async (req: Request, res: Response): Promise
       return;
     }
     await deletePath(workspaceId, pathParam);
+    res.json({ ok: true });
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Sync all files from disk to Supabase for this workspace (excluding dist/, node_modules, etc.). */
+router.post("/:workspaceId/files/sync", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { workspaceId } = req.params;
+    if (!workspaceId) {
+      res.status(400).json({ error: "workspaceId required" });
+      return;
+    }
+    if (!config.useSupabaseFiles) {
+      res.status(400).json({ error: "Supabase file storage is disabled" });
+      return;
+    }
+    const exists = await workspaceExists(workspaceId);
+    if (!exists) {
+      res.status(404).json({ error: "Workspace not found" });
+      return;
+    }
+    const root = getWorkspacePath(workspaceId);
+    await syncDiskToSupabase(workspaceId, root);
     res.json({ ok: true });
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));

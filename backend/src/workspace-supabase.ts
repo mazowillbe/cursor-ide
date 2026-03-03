@@ -238,7 +238,7 @@ async function walkDisk(
   diskRoot: string,
   relDir: string
 ): Promise<Array<{ path: string; content: string | null; isDir: boolean }>> {
-  const HIDDEN = new Set(["node_modules", ".git", "system-prompt.txt", "tools.json", "opencode.json"]);
+  const HIDDEN = new Set(["node_modules", "dist", ".git", "system-prompt.txt", "tools.json", "opencode.json"]);
   const fullDir = path.join(diskRoot, relDir);
   const entries = await fs.readdir(fullDir, { withFileTypes: true }).catch(() => []);
   const out: Array<{ path: string; content: string | null; isDir: boolean }> = [];

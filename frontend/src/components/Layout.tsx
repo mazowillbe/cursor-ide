@@ -7,7 +7,7 @@ import {
   type ImperativePanelHandle,
 } from "react-resizable-panels";
 import { useAuth } from "../contexts/AuthContext";
-import { getPreviewStatus, getPreviewIframeUrl } from "../api/client";
+import { getPreviewStatus, getPreviewIframeUrl, syncWorkspaceFiles } from "../api/client";
 import ChatPanel from "./ChatPanel";
 import EditorPanel from "./EditorPanel";
 import SidebarPanel from "./SidebarPanel";
@@ -80,10 +80,14 @@ export default function Layout({
   }, []);
 
   const handleWorkspaceChange = useCallback((paths?: string[]) => {
+    if (workspaceId) {
+      // Persist all workspace files to Supabase on-demand when the user clicks Sync.
+      syncWorkspaceFiles(workspaceId).catch(() => {});
+    }
     setFileTreeRefresh((k) => k + 1);
     setEditorRefreshTrigger((k) => k + 1);
     setModifiedPaths(paths ?? []);
-  }, []);
+  }, [workspaceId]);
 
   const handleOpenFile = useCallback((path: string | null) => {
     if (!path) {
