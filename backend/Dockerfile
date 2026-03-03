@@ -1,6 +1,11 @@
 # -------- Builder Stage --------
 FROM node:20-slim AS builder
 
+# node-pty requires native compilation (python, make, g++)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY package*.json ./
@@ -8,6 +13,7 @@ RUN npm ci
 
 COPY . .
 RUN npm run build
+RUN npm prune --omit=dev
 
 # -------- Production Stage --------
 FROM node:20-slim
@@ -19,8 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --omit=dev
-
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/opencode-config ./opencode-config
 COPY docker-entrypoint.sh /usr/local/bin/
