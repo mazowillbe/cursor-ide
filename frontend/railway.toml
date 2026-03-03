@@ -1,9 +1,9 @@
-# Railway config for cursor-web frontend (static build + Vite preview)
+# Railway config for cursor-web frontend (static build + serve)
 [build]
 builder = "RAILPACK"
 buildCommand = "npm install && npm run build"
 
 [deploy]
-startCommand = "npx serve dist -s -l ${PORT:-3000}"
+startCommand = "npm run start"
 healthcheckPath = "/"
 healthcheckTimeout = 30

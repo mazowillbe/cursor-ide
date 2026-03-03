@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "serve dist -s -l $PORT"
   },
   "dependencies": {
+    "serve": "^14.2.4",
     "@monaco-editor/react": "^4.6.0",
     "@supabase/supabase-js": "^2.47.0",
     "react": "^18.3.1",
