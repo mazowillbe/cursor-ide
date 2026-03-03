@@ -55,6 +55,18 @@ export async function listProjects(accessToken: string): Promise<ProjectSummary[
   return res.json();
 }
 
+/** Delete a project and all its files, chat sessions, and messages from Supabase. */
+export async function deleteProject(projectId: string, accessToken: string): Promise<void> {
+  const res = await fetch(`${API}/${projectId}/project`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || "Failed to delete project");
+  }
+}
+
 export async function openProject(
   projectId: string,
   accessToken?: string

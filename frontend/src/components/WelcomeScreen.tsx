@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { listProjects, type ProjectSummary } from "../api/client";
+import { listProjects, deleteProject, type ProjectSummary } from "../api/client";
 
 interface WelcomeScreenProps {
   session: Session;
@@ -44,6 +44,14 @@ function BlankProjectIcon() {
   );
 }
 
+function TrashIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  );
+}
+
 export default function WelcomeScreen({
   session,
   onOpenProject,
@@ -66,6 +74,17 @@ export default function WelcomeScreen({
 
   const recent = projects.slice(0, 5);
   const displayName = session.user?.email ?? "User";
+
+  const handleDeleteProject = async (e: React.MouseEvent, projectId: string) => {
+    e.stopPropagation();
+    if (!confirm("Delete this project? All files, chat sessions, and messages will be removed.")) return;
+    try {
+      await deleteProject(projectId, session.access_token ?? "");
+      setProjects((prev) => prev.filter((p) => p.id !== projectId));
+    } catch {
+      alert("Failed to delete project.");
+    }
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-[#1e1e1e] text-gray-200">
@@ -140,14 +159,23 @@ export default function WelcomeScreen({
             <li className="text-sm text-gray-500 py-2">No projects yet. Open or clone a project to get started.</li>
           )}
           {!loading && recent.map((p) => (
-            <li key={p.id}>
+            <li key={p.id} className="group relative">
               <button
                 type="button"
                 onClick={() => onSelectProject(p.id)}
-                className="w-full flex items-center justify-between px-3 py-2 rounded text-left hover:bg-[#2d2d2d] text-gray-300 hover:text-gray-100"
+                className="w-full flex items-center justify-between px-3 py-2 rounded text-left hover:bg-[#2d2d2d] text-gray-300 hover:text-gray-100 pr-10"
               >
                 <span className="text-sm font-medium truncate">{p.name}</span>
                 <span className="text-xs text-gray-500 truncate ml-2 max-w-[12rem]">{p.description || "—"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => handleDeleteProject(e, p.id)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-gray-500 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-400 transition-opacity"
+                title="Delete project"
+                aria-label="Delete project"
+              >
+                <TrashIcon />
               </button>
             </li>
           ))}

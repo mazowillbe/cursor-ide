@@ -112,4 +112,51 @@ router.patch("/:workspaceId/project", requireAuth, async (req, res) => {
   }
 });
 
+/** Delete a project and all its data (files, chat_sessions, chat_messages) in Supabase. projectId = workspaceId. */
+router.delete("/:projectId/project", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const projectId = req.params.projectId as string;
+    const userId = (req as Request & { userId: string }).userId;
+    if (!projectId?.trim()) {
+      res.status(400).json({ error: "projectId required" });
+      return;
+    }
+
+    const supabase = createServerClient();
+    const { data: project, error: fetchErr } = await supabase
+      .from("projects")
+      .select("id, workspace_id")
+      .eq("id", projectId)
+      .single();
+
+    if (fetchErr || !project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    const { data: workspace } = await supabase
+      .from("workspaces")
+      .select("owner_id")
+      .eq("id", project.workspace_id)
+      .single();
+
+    if (!workspace || workspace.owner_id !== userId) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+
+    const { error: deleteErr } = await supabase.from("projects").delete().eq("id", projectId);
+
+    if (deleteErr) {
+      res.status(500).json({ error: deleteErr.message });
+      return;
+    }
+
+    res.status(200).json({ ok: true });
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
