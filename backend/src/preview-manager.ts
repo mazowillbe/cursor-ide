@@ -26,8 +26,8 @@ const DEV_SERVER_PATTERNS = [
 /** Max age for a registered port (ms). After this we clear so a new dev server can be detected. */
 const PORT_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-/** Ports used by the main cursor-web app (frontend + backend). Never use these for workspace preview. */
-const RESERVED_PORTS = new Set([5173]);
+/** Ports used by the backend itself. Never use for workspace preview (would proxy to our own server). */
+const RESERVED_PORTS = new Set([3001]);
 
 interface PortEntry {
   port: number;
