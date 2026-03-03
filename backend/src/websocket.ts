@@ -722,7 +722,7 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
               }
             }, NO_RESPONSE_TIMEOUT_MS);
                 let jsonlBuffer = "";
-                const JSONL_BUFFER_MAX = 100 * 1024; // 100KB cap to avoid OOM on Render free tier (512MB)
+                const JSONL_BUFFER_MAX = 64 * 1024; // 64KB cap; stream narrative as we go to limit memory on 1GB instances
                 let loggedBufferCap = false;
                 let toolEventIndex = 0;
                 let toolCallSendCount = 0;

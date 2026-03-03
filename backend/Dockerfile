@@ -38,6 +38,8 @@ RUN adduser --disabled-password --gecos "" appuser \
 
 ENV NODE_ENV=production
 ENV WORKSPACE_ROOT=/var/data/workspaces
+# Keep Node heap under 1GB so the process stays within 1GB RAM (e.g. Render 1GB instance)
+ENV NODE_OPTIONS=--max-old-space-size=896
 
 EXPOSE 3001
 

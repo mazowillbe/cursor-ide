@@ -1055,7 +1055,7 @@ export default function ChatPanel({
       setStreaming(false);
       wsRef.current = null;
       if (ev.code !== 1000 && ev.code !== 1005) {
-        const msg = ev.reason || `Connection closed (code ${ev.code}). Backend may be cold—try again in 30s.`;
+        const msg = ev.reason || `Connection closed (code ${ev.code}).`;
         setWsError(msg);
         setMessages((prev) =>
           prev.map((m) =>
