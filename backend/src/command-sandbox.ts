@@ -21,8 +21,23 @@ const ALLOWED = new Set([
 /** 'cd' is allowed only when the target path is workspace-relative (validated separately). */
 const CD_ALLOWED = "cd";
 
-/** Max time a command can run (ms). Default 1 hour. */
-export const DEFAULT_COMMAND_TIMEOUT_MS = 60 * 60 * 1000;
+/** Dangerous substrings that must not appear in commands (defense in depth). */
+const BLOCKED_PATTERNS = [
+  /\bsudo\b/i,
+  /\bsu\s+/i,
+  /\bchmod\b/i,
+  /\bchown\b/i,
+  /\bchgrp\b/i,
+  /\brm\s+-[rf]+/i, // rm -rf, rm -fr, rm -r -f, etc.
+  /\bcurl\s+\S+\s*\|/i,
+  /\bwget\s+\S+\s*\|/i,
+  /\|\s*bash\b/i,
+  /\|\s*sh\b/i,
+  /\beval\s+/i,
+];
+
+/** Max time a command can run (ms). 30 min for Docker/Render resource limits. */
+export const DEFAULT_COMMAND_TIMEOUT_MS = 30 * 60 * 1000;
 
 /**
  * Split a shell command into segments (by && and ;).
@@ -48,10 +63,18 @@ function firstToken(segment: string): string {
 }
 
 /**
+ * Check if command contains any blocked dangerous patterns.
+ */
+function hasBlockedPattern(command: string): boolean {
+  return BLOCKED_PATTERNS.some((p) => p.test(command));
+}
+
+/**
  * Command allowlist: only these executables may be run.
  * Returns true if every segment's first token is allowed (including "cd" when path is safe).
  */
 export function isCommandAllowed(command: string): boolean {
+  if (hasBlockedPattern(command)) return false;
   const segments = getSegments(command);
   for (const seg of segments) {
     const token = firstToken(seg);

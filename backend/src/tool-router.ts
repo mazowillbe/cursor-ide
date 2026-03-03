@@ -424,7 +424,7 @@ export async function executeTool(
         } catch {
           currentContent = "";
         }
-        const applied = await applyEditWithModel(currentContent, {
+        const applied = await applyEditWithModel(workspaceId, currentContent, {
           target_file: pathTrimmed,
           instructions,
           code_edit: codeEditStripped,
@@ -551,7 +551,7 @@ export async function executeTool(
         };
       }
       const currentContent = await readFile(workspaceId, targetFile.trim());
-      const newContent = await reapplyEditWithModel(currentContent, last);
+      const newContent = await reapplyEditWithModel(workspaceId, currentContent, last);
       const toWrite = stripCodeFences(newContent);
       await writeFile(workspaceId, targetFile.trim(), toWrite);
       log("reapply ok", { path: targetFile });

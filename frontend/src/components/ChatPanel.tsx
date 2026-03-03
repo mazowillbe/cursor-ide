@@ -1024,7 +1024,10 @@ export default function ChatPanel({
           }
           onAgentComplete?.();
         } else if (data.type === "error") {
-          const errText = data.error || "Unknown error";
+          let errText = data.error || "Unknown error";
+          if (/API key expired|renew the API key/i.test(errText)) {
+            errText += "\n\nGet a fresh key at https://opencode.ai/auth and update OPENCODE_ZEN_API_KEY in backend/.env. Restart the backend after updating.";
+          }
           setMessages((prev) =>
             prev.map((m) => (m.id === assistantId ? { ...m, content: `Error: ${errText}`, streaming: false } : m))
           );
@@ -1141,6 +1144,17 @@ export default function ChatPanel({
                   : "text-sm text-gray-300 whitespace-pre-wrap break-words"
               }
             >
+              {m.role === "assistant" && (m.thinking ?? "").trim().length > 0 && (
+                <details className="mb-2 group" open={m.streaming}>
+                  <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-400 list-none flex items-center gap-1 [&::-webkit-details-marker]:hidden">
+                    <span className="inline-block w-0 h-0 border-y-[4px] border-y-transparent border-l-[6px] border-l-gray-500 group-open:rotate-90 group-open:translate-y-0.5 transition-transform" />
+                    AI thinking
+                  </summary>
+                  <pre className="mt-1.5 p-2.5 text-xs bg-surface-600/60 rounded border border-surface-500/50 overflow-x-auto overflow-y-auto max-h-48 whitespace-pre-wrap leading-relaxed text-gray-400">
+                    {(m.thinking ?? "").trim()}
+                  </pre>
+                </details>
+              )}
               {m.role === "user"
                 ? (() => {
                     const visible = getUserVisibleContent(m.content || "");

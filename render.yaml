@@ -7,14 +7,18 @@
 # 3. Set OPENCODE_ZEN_API_KEY on the backend (for free Zen models) OR GEMINI_API_KEY (for Gemini)
 # 4. Redeploy the frontend so it picks up the API URL
 # 5. Free tier has 512MB RAM. If you see OOM, upgrade to a paid plan or set NODE_OPTIONS=--max-old-space-size=400
+#
+# Backend: Docker runtime for consistent Node + git + OpenCode. Use USE_SUPABASE_FILES=true for
+# persistence on ephemeral disk, or attach a persistent disk and set WORKSPACE_ROOT=/data/workspaces.
 
 services:
   - type: web
-    runtime: node
+    runtime: docker
     name: cursor-web-backend
     rootDir: backend
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    healthCheckPath: /api/health
     envVars:
       - key: HOST
         value: 0.0.0.0

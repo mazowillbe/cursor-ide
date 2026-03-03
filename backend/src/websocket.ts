@@ -22,6 +22,39 @@ const ALLOWED_BUILTIN_TOOLS = new Set(["websearch", "webfetch", "todowrite", "to
 const RUN = "run";
 const ABORT = "abort";
 
+/** Models that natively output <think> or thought parts (API-level). We also instruct ALL models via prompt to use <think> tags. */
+const THINKING_MODEL_PATTERNS = [
+  /kimi-k2-thinking/i,
+  /thinking/i,
+  /gemini-3(\.(1|0))?-pro/i,
+  /gemini-3-flash/i,
+];
+
+function isThinkingModel(modelId: string | undefined): boolean {
+  if (!modelId || typeof modelId !== "string") return false;
+  return THINKING_MODEL_PATTERNS.some((p) => p.test(modelId));
+}
+
+/** Always show thinking: we instruct all models to use <think> tags in the system prompt. */
+const ALWAYS_EXTRACT_THINKING = true;
+
+/**
+ * Split text into thinking and non-thinking parts. Thinking models output <think>...</think> blocks.
+ * Returns { thinking, content } - content has think tags stripped.
+ */
+function splitThinkingFromContent(text: string): { thinking: string; content: string } {
+  let thinking = "";
+  let content = text;
+  const thinkRe = /<think>([\s\S]*?)<\/think>/gi;
+  let m;
+  while ((m = thinkRe.exec(text)) !== null) {
+    thinking += (thinking ? "\n\n" : "") + (m[1] ?? "").trim();
+  }
+  content = text.replace(thinkRe, "").trim();
+  return { thinking, content };
+}
+
+
 /** Extract the file body from read_file tool output that uses <path>, <type>, <content> tags. */
 function extractReadFileContent(raw: string): string {
   const m = raw.match(/<content>([\s\S]*?)<\/content>/i);
@@ -661,7 +694,10 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
           if (modePrefix) messageToSend = modePrefix + messageToSend;
 
           const key = `${workspaceId}:${Date.now()}`;
-          console.log("[agent] run requested, workspace:", workspaceId, "continuing:", !!opencodeSessionId, "message length:", messageToSend.length);
+          const selectedModel = typeof msg.model === "string" ? msg.model : undefined;
+          const showThinking = isThinkingModel(selectedModel);
+          const debugThinking = process.env.DEBUG_THINKING === "1";
+          console.log("[agent] run requested, workspace:", workspaceId, "continuing:", !!opencodeSessionId, "message length:", messageToSend.length, "thinking model:", showThinking);
           registerSessionSocket(workspaceId, chatSessionId, ws);
           let noResponseTimer: ReturnType<typeof setTimeout> | null = null;
           try {
@@ -672,7 +708,8 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
               ended = true;
               running.delete(key);
             };
-            const NO_RESPONSE_TIMEOUT_MS = 120_000;
+            // Thinking models (Gemini 3 Pro, Kimi K2 Thinking) can take 2–4 min for first token
+            const NO_RESPONSE_TIMEOUT_MS = showThinking ? 300_000 : 180_000;
             noResponseTimer = setTimeout(() => {
               noResponseTimer = null;
               if (chunkCount === 0 && !ended && ws.readyState === ws.OPEN) {
@@ -680,7 +717,7 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                 done();
                 ws.send(JSON.stringify({
                   type: "error",
-                  error: "AI did not respond in time. Check: 1) Backend terminal for errors, 2) OPENCODE_ZEN_API_KEY or GEMINI_API_KEY in backend/.env, 3) First run may take 1–2 min while npx downloads opencode-ai.",
+                  error: "AI did not respond in time. Check: 1) Backend terminal for errors, 2) OPENCODE_ZEN_API_KEY (or opencode auth login) in backend/.env, 3) First run may take 1–2 min while npx downloads opencode-ai. Thinking models (Gemini 3 Pro, etc.) can take 3–5 min for the first response.",
                 }));
               }
             }, NO_RESPONSE_TIMEOUT_MS);
@@ -705,7 +742,15 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                       console.log("[agent] first chunk received", useJson ? "(JSONL mode)" : "(text mode)", "len:", str.length, "preview:", JSON.stringify(preview));
                     }
                     if (!useJson) {
-                      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "chunk", data: chunk }));
+                      if (ws.readyState === ws.OPEN) {
+                        if (ALWAYS_EXTRACT_THINKING) {
+                          const { thinking: thinkPart, content: contentPart } = splitThinkingFromContent(chunk);
+                          if (thinkPart) ws.send(JSON.stringify({ type: "thinking", data: thinkPart }));
+                          if (contentPart) ws.send(JSON.stringify({ type: "chunk", data: contentPart }));
+                        } else {
+                          ws.send(JSON.stringify({ type: "chunk", data: chunk }));
+                        }
+                      }
                       return;
                     }
                     let str = typeof chunk === "string" ? chunk : String(chunk);
@@ -750,7 +795,13 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                     }
                     const narrativeClean = narrative ? stripAnsi(narrative.replace(/\[[0-9;]+[A-Za-z]/g, "")).trim() : "";
                     if (narrativeClean && ws.readyState === ws.OPEN) {
-                      ws.send(JSON.stringify({ type: "chunk", data: narrativeClean }));
+                      if (ALWAYS_EXTRACT_THINKING) {
+                        const { thinking: thinkPart, content: contentPart } = splitThinkingFromContent(narrativeClean);
+                        if (thinkPart) ws.send(JSON.stringify({ type: "thinking", data: thinkPart }));
+                        if (contentPart) ws.send(JSON.stringify({ type: "chunk", data: contentPart }));
+                      } else {
+                        ws.send(JSON.stringify({ type: "chunk", data: narrativeClean }));
+                      }
                       // Detect dev server port from agent narrative (e.g. "Dev server running at http://localhost:5174/")
                       const port = detectAndRegister(workspaceId, narrativeClean);
                       if (port != null) {
@@ -785,6 +836,7 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                             callID?: string;
                             type?: string;
                             tool?: string;
+                            thought?: boolean;
                             sessionID?: string;
                             state?: {
                               status?: string;
@@ -794,11 +846,63 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                             };
                             text?: string;
                           };
-                          properties?: { part?: { id?: string; callID?: string; type?: string; tool?: string; sessionID?: string; state?: { status?: string; input?: unknown; output?: string; metadata?: { output?: string } }; text?: string } };
+                          content?: string;
+                          text?: string;
+                          properties?: { part?: { id?: string; callID?: string; type?: string; tool?: string; thought?: boolean; sessionID?: string; state?: { status?: string; input?: unknown; output?: string; metadata?: { output?: string } }; text?: string } };
                           error?: { name?: string; data?: { message?: string } };
                         };
+                        // Streaming thought/reasoning deltas - forward immediately to frontend
+                        const deltaEv = ev as { type?: string; delta?: string; text?: string; content?: string; part?: { textDelta?: string; delta?: string; thought?: boolean } };
+                        const isReasoningDelta =
+                          deltaEv.type === "reasoning-delta" ||
+                          deltaEv.type === "thinking_delta" ||
+                          deltaEv.type === "thought-delta" ||
+                          deltaEv.type === "model-thought" ||
+                          deltaEv.type === "model-thought-delta";
+                        const isTextDelta = deltaEv.type === "text-delta";
+                        const deltaContent =
+                          deltaEv.delta ??
+                          deltaEv.text ??
+                          deltaEv.content ??
+                          (deltaEv.part && typeof deltaEv.part === "object"
+                            ? (deltaEv.part.textDelta ?? (deltaEv.part as { delta?: string }).delta ?? (deltaEv.part as { text?: string }).text)
+                            : undefined);
+                        if ((isReasoningDelta || (isTextDelta && deltaEv.part?.thought)) && showThinking && ws.readyState === ws.OPEN && typeof deltaContent === "string") {
+                          ws.send(JSON.stringify({ type: "thinking", data: deltaContent }));
+                          // Skip parts loop - delta events are streamed and don't need part processing
+                          continue;
+                        }
+                        if (isTextDelta && typeof deltaContent === "string" && deltaContent && ws.readyState === ws.OPEN) {
+                          ws.send(JSON.stringify({ type: "chunk", data: deltaContent }));
+                          continue;
+                        }
+                        // Top-level thought event (e.g. {"type":"thought","content":"..."}) when content is at event level
+                        if (ev.type === "thought" && (ev.content ?? ev.text) && showThinking && ws.readyState === ws.OPEN) {
+                          const thoughtContent = String(ev.content ?? ev.text ?? "").trim();
+                          if (thoughtContent) ws.send(JSON.stringify({ type: "thinking", data: thoughtContent }));
+                        }
+                        // Log text events when thinking model (they contain the response - check if thought is present)
+                        if (showThinking && ev.type === "text") {
+                          const part = ev.part && typeof ev.part === "object" ? ev.part as Record<string, unknown> : {};
+                          const hasThought = "thought" in part && part.thought === true;
+                          const textLen = typeof part.text === "string" ? part.text.length : 0;
+                          const textPreview = typeof part.text === "string" ? part.text.slice(0, 120).replace(/\n/g, " ") : "";
+                          console.log("[agent] TEXT event thought:", hasThought, "textLen:", textLen, "keys:", Object.keys(part).join(","), "preview:", JSON.stringify(textPreview));
+                        }
+                        // step_finish: extract reasoning/thinking content if present (some providers include it)
+                        if (showThinking && ev.type === "step_finish" && ws.readyState === ws.OPEN) {
+                          const part = ev.part && typeof ev.part === "object" ? ev.part as Record<string, unknown> : {};
+                          const tokens = part.tokens && typeof part.tokens === "object" ? part.tokens as Record<string, unknown> : {};
+                          const reasoningText = typeof tokens.reasoningText === "string" ? tokens.reasoningText
+                            : typeof tokens.thinking === "string" ? tokens.thinking
+                            : typeof (part as { reasoningText?: string }).reasoningText === "string" ? (part as { reasoningText: string }).reasoningText
+                            : undefined;
+                          if (reasoningText && reasoningText.trim()) {
+                            ws.send(JSON.stringify({ type: "thinking", data: reasoningText.trim() }));
+                          }
+                        }
                         const singlePart = ev.part ?? ev.properties?.part;
-                        const partsArray = (ev as { parts?: unknown[] }).parts ?? (ev.properties as { parts?: unknown[] } | undefined)?.parts;
+                        const partsArray = (ev as { parts?: unknown[] }).parts ?? (ev.properties as { parts?: unknown[] } | undefined)?.parts ?? (ev as { content?: unknown[] }).content;
                         const partsToProcess: unknown[] = Array.isArray(partsArray) && partsArray.length > 0
                           ? partsArray
                           : Array.isArray(singlePart)
@@ -815,10 +919,28 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                         const toolCallsToRun: ToolCall[] = [];
                         for (const part of partsToProcess) {
                           if (!part || typeof part !== "object") continue;
-                          const p = part as { type?: string; tool?: string; text?: string; state?: unknown; callID?: string; id?: string; input?: unknown; args?: unknown };
+                          const p = part as { type?: string; tool?: string; text?: string; thought?: boolean; state?: unknown; callID?: string; id?: string; input?: unknown; args?: unknown; modelThought?: unknown };
+                          // Gemini/API thinking: part.thought === true, part.type === "thought", model-thought, or modelThought
+                          const isThoughtPart =
+                            p.thought === true ||
+                            p.type === "thought" ||
+                            p.type === "model-thought" ||
+                            p.type === "modelThought" ||
+                            (p as { thoughtPart?: unknown }).thoughtPart !== undefined ||
+                            p.modelThought !== undefined;
                           if (p.text) {
                             const cleaned = stripReadToolEchoFromNarrative(p.text);
-                            if (cleaned && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "chunk", data: cleaned }));
+                            if (cleaned && ws.readyState === ws.OPEN) {
+                              if (isThoughtPart && showThinking) {
+                                ws.send(JSON.stringify({ type: "thinking", data: cleaned }));
+                              } else if (ALWAYS_EXTRACT_THINKING) {
+                                const { thinking: thinkPart, content: contentPart } = splitThinkingFromContent(cleaned);
+                                if (thinkPart) ws.send(JSON.stringify({ type: "thinking", data: thinkPart }));
+                                if (contentPart) ws.send(JSON.stringify({ type: "chunk", data: contentPart }));
+                              } else {
+                                ws.send(JSON.stringify({ type: "chunk", data: cleaned }));
+                              }
+                            }
                             continue;
                           }
                           if (p.type !== "tool" && !p.tool) continue;

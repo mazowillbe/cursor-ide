@@ -28,11 +28,7 @@ This app uses **Gemini** by default if you added your Gemini API key in OpenCode
    ```
    Select **Google** (or the provider that offers Gemini), paste your API key when prompted, and confirm.
 
-2. **Run the app.** The backend uses `google/gemini-2.0-flash` by default. To use a different Gemini model, set the env var (see Configuration):
-   ```bash
-   OPENCODE_DEFAULT_MODEL=google/gemini-1.5-pro
-   ```
-   Run `opencode models google` to list available Gemini model IDs.
+2. **Run the app.** The backend uses OpenCode for the agent, edit_file, chat titles, and project names. Set `OPENCODE_DEFAULT_MODEL` (e.g. `opencode/minimax-m2.5-free` for Zen, or `google/gemini-2.0-flash` if using Gemini). Run `opencode models` to list available models.
 
 ### Other options: OpenCode Zen (free tier) or local models
 
@@ -116,7 +112,7 @@ cursor-web/
 | `WORKSPACE_ROOT` | Directory for workspace folders | `./workspaces` |
 | `OPENCODE_PATH` | OpenCode CLI command | `opencode` |
 | `OPENCODE_DEFAULT_MODEL` | Default model for agent (e.g. Zen free model) | `opencode/minimax-m2.5-free` |
-| `GEMINI_API_KEY` | For edit_file apply agent (Gemini 2.0 Flash) and chat titles | optional |
+| `GEMINI_API_KEY` | For describe-image (vision) and summarizer only; edit_file, title, project name use OpenCode | optional |
 | `SUPABASE_URL` | Supabase project URL | required |
 | `SUPABASE_ANON_KEY` | Supabase anon key (for JWT verification) | required |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (for backend ops) | required |
@@ -154,6 +150,8 @@ Serve `frontend/dist` with your static server and ensure API and WebSocket route
    - **Backend** (`cursor-web-backend`): `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY` (optional), `CORS_ORIGIN` (your frontend URL, e.g. `https://cursor-web-frontend.onrender.com`).
    - **Frontend** (`cursor-web-frontend`): `VITE_API_URL` (your backend URL, e.g. `https://cursor-web-backend.onrender.com`), `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
 4. Deploy. After the first deploy, copy the backend URL and set `VITE_API_URL` on the frontend, then redeploy the frontend.
+
+**Backend (Docker)**: The backend uses a Dockerfile for consistent Node + git + OpenCode. Set `USE_SUPABASE_FILES=true` (default in render.yaml) so workspace files persist via Supabase on Render's ephemeral disk. For a persistent disk instead, add a disk in Render and set `WORKSPACE_ROOT=/data/workspaces` (or your mount path).
 
 ## Architecture
 

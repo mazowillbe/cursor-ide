@@ -1,8 +1,7 @@
 import { Router, type Request, type Response } from "express";
-import { GoogleGenAI } from "@google/genai";
+import { runOpenCodeAndGetText } from "../opencode-run.js";
 
 const router = Router();
-const apiKey = process.env.GEMINI_API_KEY;
 
 router.post("/title", async (req: Request, res: Response): Promise<void> => {
   const { message } = req.body as { message?: string };
@@ -12,22 +11,14 @@ router.post("/title", async (req: Request, res: Response): Promise<void> => {
       res.status(400).json({ error: "message required" });
       return;
     }
-    if (!apiKey) {
-      res.json({ title: message.slice(0, 40).trim() || "New Chat" });
-      return;
-    }
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: `Given this user message, respond with ONLY a short 2-4 word title for the chat session. No quotes, no punctuation. Be concise.
+    const prompt = `Given this user message, respond with ONLY a short 2-4 word title for the chat session. No quotes, no punctuation. Be concise.
 
-Message: ${message.slice(0, 500)}`,
-      config: { maxOutputTokens: 20 },
-    });
-    const text = response.text?.trim() ?? "";
-    const title = text.slice(0, 50) || fallback;
+Message: ${message.slice(0, 500)}`;
+    const text = await runOpenCodeAndGetText(prompt, { model: process.env.OPENCODE_TITLE_MODEL });
+    const title = (text || fallback).slice(0, 50).trim() || fallback;
     res.json({ title });
-  } catch {
+  } catch (err) {
+    console.warn("[title] OpenCode failed, using fallback:", err);
     res.json({ title: fallback });
   }
 });

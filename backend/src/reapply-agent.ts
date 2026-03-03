@@ -1,13 +1,10 @@
 /**
- * Reapply agent: uses a smarter model (Gemini) to re-apply the last edit_file
- * to the specified file when the initial apply was wrong or ambiguous.
+ * Reapply agent: uses OpenCode to re-apply the last edit_file when the initial apply was wrong.
  * Use immediately after edit_file if the diff was not what you expected.
  */
 
-import { GoogleGenAI } from "@google/genai";
+import { runOpenCodeInWorkspace, type WorkspaceId } from "./opencode-run.js";
 import { stripCodeFences } from "./apply-edit-agent.js";
-
-const apiKey = process.env.GEMINI_API_KEY;
 
 export interface LastEdit {
   target_file: string;
@@ -15,22 +12,33 @@ export interface LastEdit {
   code_edit: string;
 }
 
+const REAPPLY_CONFIG = JSON.stringify({
+  $schema: "https://opencode.ai/config.json",
+  tools: {
+    write: false,
+    edit: false,
+    bash: false,
+    read: false,
+    grep: false,
+    glob: false,
+    list: false,
+    patch: false,
+    webfetch: false,
+    websearch: false,
+    task: false,
+  },
+});
+
 /**
- * Call Gemini to produce the correct file content by re-applying the described edit.
+ * Call OpenCode to produce the correct file content by re-applying the described edit.
  * Returns the full new file content, or throws.
  */
 export async function reapplyEditWithModel(
+  workspaceId: WorkspaceId,
   currentContent: string,
   lastEdit: LastEdit
 ): Promise<string> {
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is required for reapply. Set it in the environment.");
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
-  const response = await ai.models.generateContent({
-    model: "gemini-2.0-flash",
-    contents: `You are a precise code editor. The user attempted an edit that was applied incorrectly (e.g. by a simpler model). Your job is to apply the SAME intended edit correctly to the file.
+  const prompt = `You are a precise code editor. The user attempted an edit that was applied incorrectly (e.g. by a simpler model). Your job is to apply the SAME intended edit correctly to the file.
 
 FILE: ${lastEdit.target_file}
 
@@ -47,11 +55,14 @@ CURRENT FILE CONTENT (exactly as it is now):
 ${currentContent}
 \`\`\`
 
-TASK: Output the COMPLETE new file content after correctly applying the intended edit. Preserve formatting and style. Do not add explanations—only the file content.`,
-    config: { maxOutputTokens: 16384, temperature: 0.1 },
+TASK: Output the COMPLETE new file content after correctly applying the intended edit. Preserve formatting and style. Do not add explanations—only the file content.`;
+
+  const model = process.env.OPENCODE_REAPPLY_MODEL;
+  const text = await runOpenCodeInWorkspace(workspaceId, prompt, {
+    configContent: REAPPLY_CONFIG,
+    model: model || undefined,
   });
 
-  const text = response.text?.trim() ?? "";
   if (!text) throw new Error("Reapply model returned empty content.");
   return stripCodeFences(text);
 }

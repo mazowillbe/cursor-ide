@@ -1,8 +1,7 @@
 import { Router, type Request, type Response } from "express";
-import { GoogleGenAI } from "@google/genai";
+import { runOpenCodeAndGetText } from "../opencode-run.js";
 
 const router = Router();
-const apiKey = process.env.GEMINI_API_KEY;
 
 /** Valid project name: 2 or 3 lowercase parts separated by dashes, e.g. my-app or my-favorite-app */
 const PROJECT_NAME_REGEX = /^[a-z][a-z0-9]*-[a-z0-9]+(-[a-z0-9]+)?$/;
@@ -31,14 +30,7 @@ router.post("/project-name", async (req: Request, res: Response): Promise<void> 
       res.status(400).json({ error: "message required" });
       return;
     }
-    if (!apiKey) {
-      res.json({ name: null });
-      return;
-    }
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: `You analyze if a user wants to CREATE A NEW PROJECT (a new app, website, or codebase from scratch).
+    const prompt = `You analyze if a user wants to CREATE A NEW PROJECT (a new app, website, or codebase from scratch).
 
 Rules:
 1. If the user wants to create/build/scaffold a new project, app, or website, respond with ONLY a project name.
@@ -46,17 +38,16 @@ Rules:
 3. Use lowercase only. No spaces, no special characters.
 4. If the user does NOT want to create a new project (e.g. they want to fix something, edit existing code, ask a question, debug), respond with exactly: NONE
 
-User message: ${message.slice(0, 500)}`,
-      config: { maxOutputTokens: 30 },
-    });
-    const raw = (response.text ?? "").trim();
+User message: ${message.slice(0, 500)}`;
+    const raw = (await runOpenCodeAndGetText(prompt, { model: process.env.OPENCODE_PROJECT_NAME_MODEL })).trim();
     if (raw.toUpperCase() === "NONE" || raw.length === 0) {
       res.json({ name: null });
       return;
     }
     const name = normalizeToProjectName(raw);
     res.json({ name: name ?? null });
-  } catch {
+  } catch (err) {
+    console.warn("[project-name] OpenCode failed:", err);
     res.json({ name: null });
   }
 });
