@@ -127,3 +127,67 @@ html, body, #root,
 .hide-scrollbar-mini-editor::-webkit-scrollbar-thumb:hover {
   background: #505050;
 }
+
+/* -------- Mobile-first chat (max-width: 768px) -------- */
+@media (max-width: 768px) {
+  .chat-panel-mobile {
+    --chat-bg: #18181b;
+    --chat-border: #3f3f46;
+  }
+  .chat-panel-mobile .chat-messages {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    font-size: 0.875rem;
+  }
+  .chat-panel-mobile .message-bubble-user {
+    max-width: 95%;
+    font-size: 0.875rem;
+  }
+  .chat-panel-mobile .message-content pre,
+  .chat-panel-mobile .message-content [class*="overflow"] {
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: pre;
+    max-height: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .chat-panel-mobile .input-area {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+  .chat-panel-mobile .input-area button,
+  .chat-panel-mobile .input-area [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .chat-panel-mobile .input-area textarea {
+    min-height: 88px;
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+  }
+  /* Lighter diff/code blocks: single outer border, zinc background */
+  .chat-panel-mobile .message-content .rounded-lg {
+    border: 1px solid rgb(63 63 70);
+    background-color: rgb(24 24 27 / 0.6);
+  }
+  .chat-panel-mobile .message-content .rounded-lg > div:first-child {
+    padding: 0.375rem 0.5rem;
+    font-size: 0.75rem;
+    border-bottom: none;
+  }
+  .chat-panel-mobile .message-content pre {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    background-color: rgb(24 24 27 / 0.5);
+  }
+  .chat-panel-mobile .input-area select {
+    min-height: 44px;
+  }
+  /* Typography: consistent base size on mobile */
+  .chat-panel-mobile .chat-messages {
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  .chat-panel-mobile .chat-messages .text-xs {
+    font-size: 0.75rem;
+  }
+}

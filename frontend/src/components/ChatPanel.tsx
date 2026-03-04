@@ -320,9 +320,20 @@ const FILE_ICON =
 /**
  * Format unified diff blocks: file header with +N -M, red for removals, green for additions.
  * Matches --- a/file, +++ b/file, @@ hunks. Collapsible when large. Also handles ```diff code blocks.
+ * When isMobile: compact header, single outer border, more aggressive collapse (6 lines → show 3).
  */
-function formatDiffInContent(content: string): string {
+function formatDiffInContent(content: string, isMobile?: boolean): string {
   let out = content;
+  const collapseThreshold = isMobile ? 6 : 12;
+  const visibleLinesDefault = isMobile ? 3 : 6;
+  const headerCls = isMobile
+    ? "px-2 py-1 flex items-center gap-1 text-xs font-medium text-gray-300"
+    : "px-3 py-2 flex items-center gap-1 text-sm font-medium text-gray-300 border-b border-surface-500";
+  const wrapperCls = isMobile
+    ? "my-2 rounded-lg border border-zinc-700 overflow-hidden bg-zinc-900/60"
+    : "my-2 rounded-lg border border-surface-500 overflow-hidden";
+  const preCls = "text-xs font-mono whitespace-pre overflow-x-auto overflow-y-hidden";
+  const preBg = isMobile ? "p-2 bg-zinc-900/50" : "p-2 bg-surface-700/50";
   const unifiedDiff =
     /^(--- [^\n]+\n\+\+\+ [^\n]+)\n((?:@@[^\n]*\n(?:[^\n-+].*\n|-[^\n]*\n|\+[^\n]*\n)*)*)/gm;
   out = out.replace(unifiedDiff, (_match, header, body) => {
@@ -344,36 +355,39 @@ function formatDiffInContent(content: string): string {
     });
     const bodyHtml = lines.join("\n");
     const summary = ` <span class="text-gray-500 text-xs">+${adds} -${dels}</span>`;
-    const isLarge = lines.length > 12;
-    const visibleLines = isLarge ? lines.slice(0, 6) : lines;
+    const isLarge = lines.length > collapseThreshold;
+    const visibleLines = isLarge ? lines.slice(0, visibleLinesDefault) : lines;
     const hiddenCount = lines.length - visibleLines.length;
     const bodyContent = isLarge
-      ? `<pre class="p-2 text-xs overflow-x-auto bg-surface-700/50 font-mono whitespace-pre">${visibleLines.join("\n")}</pre>
-        <details class="group"><summary class="px-2 py-1.5 text-xs text-gray-500 cursor-pointer hover:bg-surface-600/50 flex items-center gap-1">
+      ? `<pre class="${preBg} ${preCls}">${visibleLines.join("\n")}</pre>
+        <details class="group"><summary class="px-2 py-1 text-xs text-gray-500 cursor-pointer hover:bg-zinc-800/50 flex items-center gap-1">
           <span class="transition-transform group-open:rotate-180">▼</span> ${hiddenCount} hidden line${hiddenCount !== 1 ? "s" : ""}
-        </summary><pre class="p-2 text-xs overflow-x-auto bg-surface-700/50 font-mono whitespace-pre border-t border-surface-500">${lines.slice(6).join("\n")}</pre></details>`
-      : `<pre class="p-2 text-xs overflow-x-auto bg-surface-700/50 font-mono whitespace-pre">${bodyHtml}</pre>`;
-    return `<div class="my-2 rounded-lg border border-surface-500 overflow-hidden"><div class="px-3 py-2 flex items-center gap-1 bg-surface-600 text-sm font-medium text-gray-300 border-b border-surface-500">${FILE_ICON}${escapeHtml(file)}${summary}</div>${bodyContent}</div>`;
+        </summary><pre class="${preBg} ${preCls}">${lines.slice(visibleLinesDefault).join("\n")}</pre></details>`
+      : `<pre class="${preBg} ${preCls}">${bodyHtml}</pre>`;
+    return `<div class="${wrapperCls}"><div class="${headerCls} bg-zinc-800/50">${FILE_ICON}${escapeHtml(file)}${summary}</div>${bodyContent}</div>`;
   });
   const diffCodeBlock = /```diff\n([\s\S]*?)```/g;
   out = out.replace(diffCodeBlock, (_m, block) => {
     const hasUnified = /^--- [^\n]+\n\+\+\+ [^\n]+/m.test(block);
-    return hasUnified ? formatDiffInContent(block) : `<pre class="my-2 p-2 rounded border border-surface-500 bg-surface-700/50 text-xs font-mono overflow-x-auto">${block}</pre>`;
+    return hasUnified ? formatDiffInContent(block, isMobile) : `<pre class="my-2 p-2 rounded border border-zinc-700 bg-zinc-900/50 text-xs font-mono overflow-x-auto">${block}</pre>`;
   });
   return out;
 }
 
 /** Simple markdown: ### headers, **bold**, `code`, Features: section, - bullets, ``` blocks. Escapes narrative but keeps code blocks readable. */
-function formatMarkdownInContent(content: string): string {
+function formatMarkdownInContent(content: string, isMobile?: boolean): string {
   const codeBlocks: string[] = [];
   let out = content.replace(/```[\w]*\n([\s\S]*?)```/g, (_, code) => {
     codeBlocks.push(code.trim());
     return `\x00CODE${codeBlocks.length - 1}\x00`;
   });
   out = escapeHtml(out);
+  const codePreCls = isMobile
+    ? "my-2 p-2 rounded border border-zinc-700 bg-zinc-900/50 text-xs font-mono overflow-x-auto whitespace-pre"
+    : "my-2 p-2 rounded border border-surface-500 bg-surface-700/50 text-xs font-mono overflow-x-auto whitespace-pre-wrap";
   out = out.replace(/\x00CODE(\d+)\x00/g, (_, i) => {
     const code = codeBlocks[Number(i)] ?? "";
-    return `<pre class="my-2 p-2 rounded border border-surface-500 bg-surface-700/50 text-xs font-mono overflow-x-auto whitespace-pre-wrap">${escapeHtml(code)}</pre>`;
+    return `<pre class="${codePreCls}">${escapeHtml(code)}</pre>`;
   });
   return out
     .replace(/^### (.+)$/gm, '<h3 class="text-sm font-semibold text-gray-200 mt-3 mb-1">$1</h3>')
@@ -413,7 +427,7 @@ function parseContentWithEditBlocks(
 }
 
 /** Escape HTML, extract command blocks as terminal placeholders, then apply tool-call/diff/markdown formatting. */
-function formatAssistantContent(content: string): FormattedAssistant {
+function formatAssistantContent(content: string, isMobile?: boolean): FormattedAssistant {
   const escaped = escapeHtml(content);
   const { content: withPlaceholders, terminals } = extractTerminalsAndPlaceholders(escaped);
   const withEdit = formatEditInContent(withPlaceholders);
@@ -423,8 +437,8 @@ function formatAssistantContent(content: string): FormattedAssistant {
   const withSearch = formatSearchInContent(withGrep);
   const withTodo = formatTodoInContent(withSearch);
   const withTask = formatTaskInContent(withTodo);
-  const withDiff = formatDiffInContent(withTask);
-  const html = formatMarkdownInContent(withDiff);
+  const withDiff = formatDiffInContent(withTask, isMobile);
+  const html = formatMarkdownInContent(withDiff, isMobile);
   return { html, terminals };
 }
 
@@ -614,6 +628,16 @@ export default function ChatPanel({
   const messagesRef = useRef<Message[]>(messages);
   messagesRef.current = messages;
   const terminalRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(max-width: 768px)");
+    const handle = () => setIsMobile(mq.matches);
+    handle();
+    mq.addEventListener("change", handle);
+    return () => mq.removeEventListener("change", handle);
+  }, []);
 
   /** Serialize blocks to the same format we used to save (for persistence). */
   function blocksToContent(blocks: ContentBlock[]): string {
@@ -1084,9 +1108,9 @@ export default function ChatPanel({
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#1A1A1A] border-l border-surface-500">
-      <div className="flex-shrink-0 flex flex-col bg-[#1A1A1A]">
-        <div className="flex items-center gap-1 px-2 py-1.5 border-b border-surface-500 overflow-x-auto bg-[#1A1A1A]">
+    <div className={`h-full flex flex-col bg-zinc-900 border-l border-zinc-700 ${isMobile ? "chat-panel-mobile" : ""} chat-panel`}>
+      <div className="flex-shrink-0 flex flex-col bg-zinc-900">
+        <div className="flex items-center gap-1 px-2 py-1.5 border-b border-zinc-700 overflow-x-auto bg-zinc-900">
           <button
             type="button"
             onClick={createNewChat}
@@ -1128,7 +1152,7 @@ export default function ChatPanel({
           ))}
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3 min-h-0 chat-messages">
         {messages.length === 0 && (
           <p className="text-gray-500 text-sm">
             Ask OpenCode to build features, fix bugs, or explain code. Type below and press Enter.
@@ -1147,8 +1171,8 @@ export default function ChatPanel({
             <div
               className={
                 m.role === "user"
-                  ? "inline-block text-sm bg-surface-600 rounded-lg px-3 py-2 text-left max-w-[95%]"
-                  : "text-sm text-gray-300 whitespace-pre-wrap break-words"
+                  ? "inline-block text-sm bg-zinc-800 rounded-lg px-3 py-2 text-left max-w-[95%] message-bubble-user"
+                  : "text-sm text-gray-300 whitespace-pre-wrap break-words message-content"
               }
             >
               {m.role === "assistant" && (m.thinking ?? "").trim().length > 0 && (
@@ -1612,7 +1636,7 @@ export default function ChatPanel({
                         <>
                           {parsed.map((seg, i) => {
                             if (seg.type === "text") {
-                              const { html, terminals } = formatAssistantContent(seg.content);
+                              const { html, terminals } = formatAssistantContent(seg.content, isMobile);
                               if (terminals.length === 0) {
                                 return <span key={`seg-${i}`} dangerouslySetInnerHTML={{ __html: html }} />;
                               }
@@ -1661,7 +1685,7 @@ export default function ChatPanel({
                         </>
                       );
                     }
-                    const { html, terminals } = formatAssistantContent(rawContent);
+                    const { html, terminals } = formatAssistantContent(rawContent, isMobile);
                     if (terminals.length === 0) {
                       return <span dangerouslySetInnerHTML={{ __html: html }} />;
                     }
@@ -1711,14 +1735,13 @@ export default function ChatPanel({
         )}
         <div ref={bottomRef} />
       </div>
-      <div className="flex-shrink-0 p-2 border-t border-surface-500">
+      <div className="flex-shrink-0 p-2 border-t border-zinc-700 input-area sticky bottom-0 bg-zinc-900">
         <div className="text-xs text-gray-500 mb-1.5">{selectedFilePath ?? "No file selected"}</div>
         <div
-          className="rounded-xl overflow-hidden focus-within:ring-1 focus-within:ring-gray-500"
-          style={{ backgroundColor: "rgb(45, 45, 45)", border: "1px solid rgba(255,255,255,0.06)" }}
+          className="rounded-xl overflow-hidden focus-within:ring-1 focus-within:ring-gray-500 bg-zinc-800 border border-zinc-700"
         >
           {attachedImages.length > 0 && (
-            <div className="flex flex-wrap gap-2 p-2 border-b border-white/10">
+            <div className="flex flex-wrap gap-2 p-2 border-b border-zinc-700">
               {attachedImages.map((img) => (
                 <div
                   key={img.id}
@@ -1778,12 +1801,12 @@ export default function ChatPanel({
             style={{ minHeight: "72px" }}
             disabled={streaming}
           />
-          <div className="flex items-center gap-2 px-2 py-1.5 border-t border-white/10">
+            <div className="flex items-center gap-2 px-2 py-1.5 border-t border-zinc-700">
             <div className="relative" ref={infinityDropdownRef}>
               <button
                 type="button"
                 onClick={() => setInfinityDropdownOpen((o) => !o)}
-                className="rounded-md px-2.5 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10 flex items-center gap-1.5 border border-white/10 bg-[#2a2a2a] focus:outline-none focus:ring-1 focus:ring-gray-500 min-h-[28px]"
+                className="rounded-md px-2.5 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-zinc-600 flex items-center gap-1.5 border border-zinc-600 bg-zinc-800 focus:outline-none focus:ring-1 focus:ring-gray-500 min-h-[44px] min-w-[44px]"
                 title="Agent mode"
               >
                 <span className="text-base font-medium leading-none" style={{ fontFamily: "sans-serif" }}>∞</span>
@@ -1793,8 +1816,7 @@ export default function ChatPanel({
               </button>
               {infinityDropdownOpen && (
                 <div
-                  className="absolute left-0 bottom-full mb-1 min-w-[160px] rounded-lg border border-white/10 shadow-xl z-50 overflow-hidden"
-                  style={{ backgroundColor: "#1e1e1e" }}
+                  className="absolute left-0 bottom-full mb-1 min-w-[160px] rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl z-50 overflow-hidden"
                 >
                   {[
                     { id: "Agent" as const, icon: "∞", shortcut: "Ctrl+I" },
@@ -1839,7 +1861,7 @@ export default function ChatPanel({
             <select
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
-              className="rounded-md px-2.5 py-1.5 text-xs text-gray-300 border border-white/10 bg-[#2a2a2a] focus:outline-none focus:ring-1 focus:ring-gray-500 min-w-[80px] min-h-[28px] [&>option]:bg-[#1e1e1e] [&>option]:text-gray-200"
+              className="rounded-md px-2.5 py-1.5 text-xs text-gray-300 border border-zinc-600 bg-zinc-800 focus:outline-none focus:ring-1 focus:ring-gray-500 min-w-[80px] min-h-[28px] [&>option]:bg-zinc-900 [&>option]:text-gray-200"
               disabled={streaming}
             >
               {models.length === 0 ? (
@@ -1879,7 +1901,7 @@ export default function ChatPanel({
                 type="button"
                 onClick={() => imageInputRef.current?.click()}
                 disabled={streaming}
-                className="p-1.5 rounded-md text-gray-400 hover:text-gray-300 hover:bg-white/10 border border-white/10 bg-[#2a2a2a] transition-colors min-h-[28px]"
+                className="p-1.5 rounded-md text-gray-400 hover:text-gray-300 hover:bg-zinc-600 border border-zinc-600 bg-zinc-800 transition-colors min-h-[28px] min-w-[44px]"
                 title="Attach image"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1888,7 +1910,7 @@ export default function ChatPanel({
               </button>
               <button
                 onClick={streaming ? abortRun : sendMessage}
-                className={`p-1.5 rounded-full flex items-center justify-center transition-colors min-h-[28px] min-w-[28px] ${
+                className={`p-1.5 rounded-full flex items-center justify-center transition-colors min-h-[44px] min-w-[44px] ${
                   streaming
                     ? "bg-gray-400 hover:bg-gray-300"
                     : "bg-gray-500/80 text-gray-200 hover:bg-accent hover:text-white"

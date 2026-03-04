@@ -140,12 +140,12 @@ export default function Layout({
 
   if (isMobile) {
     return (
-      <div className="h-full flex flex-col bg-surface-800 text-gray-200">
-        <header className="flex-shrink-0 h-10 flex items-center justify-between px-3 border-b border-surface-500 bg-surface-700">
+      <div className="min-h-screen h-[100dvh] flex flex-col overflow-hidden bg-zinc-900 text-gray-200">
+        <header className="flex-shrink-0 h-12 flex items-center justify-between px-3 border-b border-zinc-700 bg-zinc-800">
           <button
             type="button"
             onClick={() => setMobileFileMenuOpen(true)}
-            className="p-1.5 rounded hover:bg-surface-600 text-gray-300"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded hover:bg-zinc-700 text-gray-300 -m-1"
             aria-label="Show file menu"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -157,7 +157,7 @@ export default function Layout({
         </header>
           <div className="flex-1 min-h-0 flex flex-col">
           {/* Chat / Preview toggle centered at the top in mobile, using icons only */}
-          <div className="flex-shrink-0 flex items-center justify-center gap-2 border-b border-surface-500 bg-surface-700 px-2 py-1">
+          <div className="flex-shrink-0 flex items-center justify-center gap-2 border-b border-zinc-700 bg-zinc-800 px-2 py-1.5">
             <button
               type="button"
               onClick={() => setCenterView("editor")}
@@ -200,12 +200,12 @@ export default function Layout({
               )}
             </button>
           </div>
-          <div className="flex-1 min-h-0">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
             {centerView === "preview" ? (
-              <div className="h-full w-full bg-surface-900 flex flex-col min-h-0">
+              <div className="h-full w-full bg-zinc-900 flex flex-col min-h-0">
                 {previewUrl ? (
                   <>
-                    <div className="flex-shrink-0 flex items-center gap-2 px-2 py-1.5 border-b border-surface-600 bg-surface-800">
+                    <div className="flex-shrink-0 flex items-center gap-2 px-2 py-1.5 border-b border-zinc-700 bg-zinc-800">
                       <button
                         type="button"
                         onClick={() => setPreviewRefreshKey((k) => k + 1)}
@@ -235,7 +235,7 @@ export default function Layout({
                     </div>
                   </>
                 ) : (
-                  <div className="flex-1 flex items-center justify-center px-4 text-center">
+                  <div className="flex-1 flex items-center justify-center px-4 text-center pb-[env(safe-area-inset-bottom)]">
                     <p className="text-gray-500 text-sm">
                       Run the dev server (e.g. <code className="bg-surface-700 px-1 rounded">npm run dev</code>) in the agent to see the app preview here.
                     </p>
@@ -260,14 +260,14 @@ export default function Layout({
           </div>
         </div>
         {mobileFileMenuOpen && (
-          <div className="fixed inset-0 z-40 flex">
-            <div className="w-3/4 max-w-xs bg-[#1A1A1A] border-r border-surface-500 shadow-xl flex flex-col">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-surface-500">
+          <div className="fixed inset-0 z-40 flex pb-[env(safe-area-inset-bottom)]">
+            <div className="w-3/4 max-w-xs bg-zinc-900 border-r border-zinc-700 shadow-xl flex flex-col">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-700">
                 <span className="text-sm font-medium text-gray-200">File</span>
                 <button
                   type="button"
                   onClick={() => setMobileFileMenuOpen(false)}
-                  className="p-1.5 rounded hover:bg-surface-600 text-gray-400"
+                  className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded hover:bg-zinc-700 text-gray-400"
                   aria-label="Close menu"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -283,7 +283,7 @@ export default function Layout({
                       setMobileFileMenuOpen(false);
                       onNewProject();
                     }}
-                    className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-surface-600"
+                    className="w-full px-4 py-3 text-left text-sm text-gray-200 hover:bg-zinc-700 min-h-[44px] flex items-center"
                   >
                     New project
                   </button>
@@ -295,7 +295,7 @@ export default function Layout({
                       setMobileFileMenuOpen(false);
                       onOpenProject();
                     }}
-                    className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-surface-600"
+                    className="w-full px-4 py-3 text-left text-sm text-gray-200 hover:bg-zinc-700 min-h-[44px] flex items-center"
                   >
                     Open project…
                   </button>
@@ -307,7 +307,7 @@ export default function Layout({
                       setMobileFileMenuOpen(false);
                       onCloseProject();
                     }}
-                    className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-surface-600"
+                    className="w-full px-4 py-3 text-left text-sm text-gray-200 hover:bg-zinc-700 min-h-[44px] flex items-center"
                   >
                     Close project
                   </button>
