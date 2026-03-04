@@ -54,6 +54,8 @@ export default function Layout({
   const [statusBarInfo, setStatusBarInfo] = useState<import("./StatusBar").StatusBarEditorInfo | null>(null);
   const [mobileFileMenuOpen, setMobileFileMenuOpen] = useState(false);
   const sidebarPanelRef = useRef<ImperativePanelHandle | null>(null);
+  /** Ref to all rendered preview iframes so we can reload them without remounting. */
+  const previewIframeRef = useRef<HTMLIFrameElement | null>(null);
 
   const handlePreviewReady = useCallback((url: string, port?: number) => {
     setPreviewUrl(url);
@@ -61,7 +63,13 @@ export default function Layout({
     setCenterView("preview");
   }, []);
   const handlePreviewRefresh = useCallback(() => {
-    setPreviewRefreshKey((k) => k + 1);
+    // Reload the iframe content directly — avoids remounting (no white flash / full reload of the parent component)
+    const iframeWin = previewIframeRef.current?.contentWindow;
+    if (iframeWin) {
+      try { iframeWin.location.reload(); } catch { setPreviewRefreshKey((k) => k + 1); }
+    } else {
+      setPreviewRefreshKey((k) => k + 1);
+    }
   }, []);
 
   useEffect(() => {
@@ -214,7 +222,11 @@ export default function Layout({
                     <div className="flex-shrink-0 flex items-center gap-2 px-2 py-1.5 border-b border-zinc-700 bg-zinc-800">
                       <button
                         type="button"
-                        onClick={() => setPreviewRefreshKey((k) => k + 1)}
+                        onClick={() => {
+                          const iframeWin = previewIframeRef.current?.contentWindow;
+                          if (iframeWin) { try { iframeWin.location.reload(); } catch { setPreviewRefreshKey((k) => k + 1); } }
+                          else setPreviewRefreshKey((k) => k + 1);
+                        }}
                         className="px-2.5 py-1 rounded text-xs text-gray-300 hover:text-white hover:bg-surface-600 border border-white/10"
                         title="Refresh preview"
                       >
@@ -233,6 +245,7 @@ export default function Layout({
                     <div className="flex-1 min-h-0">
                       <iframe
                         key={`${previewUrl}-${previewPort ?? ""}-${previewRefreshKey}`}
+                        ref={previewIframeRef}
                         src={previewUrl}
                         title="App preview"
                         className="w-full h-full border-0 bg-white"
@@ -434,7 +447,11 @@ export default function Layout({
                         <div className="flex-shrink-0 flex items-center gap-2 px-2 py-1.5 border-b border-surface-600 bg-surface-800">
                           <button
                             type="button"
-                            onClick={() => setPreviewRefreshKey((k) => k + 1)}
+                            onClick={() => {
+                              const iframeWin = previewIframeRef.current?.contentWindow;
+                              if (iframeWin) { try { iframeWin.location.reload(); } catch { setPreviewRefreshKey((k) => k + 1); } }
+                              else setPreviewRefreshKey((k) => k + 1);
+                            }}
                             className="px-2.5 py-1 rounded text-xs text-gray-300 hover:text-white hover:bg-surface-600 border border-white/10"
                             title="Refresh preview"
                           >
@@ -453,6 +470,7 @@ export default function Layout({
                         <div className="flex-1 min-h-0">
                           <iframe
                             key={`${previewUrl}-${previewPort ?? ""}-${previewRefreshKey}`}
+                            ref={previewIframeRef}
                             src={previewUrl}
                             title="App preview"
                             className="w-full h-full border-0 bg-white"

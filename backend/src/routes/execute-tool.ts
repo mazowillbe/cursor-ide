@@ -49,13 +49,17 @@ router.post("/agent/execute-tool", async (req: Request, res: Response): Promise<
     const ws = getSessionSocket(workspaceId, chatSessionId);
     const call: ToolCall = { callId, tool, args };
 
-    // Send pending so the UI shows the tool card (pathStr: for read_file path, for file_search query, for web_search search_term)
+    // Send pending so the UI shows the tool card (pathStr: for read_file path, for file_search query, for web_search/image_tool search term)
     if (ws && ws.readyState === ws.OPEN) {
       const pathVal = tool === "file_search"
         ? (args.query ?? args.path)
         : tool === "web_search"
           ? (args.search_term ?? args.query ?? args.path)
-          : (args.relative_workspace_path ?? args.path ?? args.target_file ?? args.file_path);
+          : tool === "image_tool"
+            ? (args.query ?? args.prompt ?? args.description)
+          : tool === "thinking_tool"
+            ? undefined
+            : (args.relative_workspace_path ?? args.path ?? args.target_file ?? args.file_path);
       const pathStr = typeof pathVal === "string" ? pathVal : (tool === "list_dir" ? "." : undefined);
       const command = (tool === "run_terminal_cmd" && (typeof args.command === "string" || typeof (args as { cmd?: string }).cmd === "string"))
         ? (args.command as string ?? (args as { cmd?: string }).cmd)
@@ -69,8 +73,19 @@ router.post("/agent/execute-tool", async (req: Request, res: Response): Promise<
           path: pathStr,
           command,
           content: undefined,
+          ...(tool === "thinking_tool" && typeof args.thought === "string" && { thought: args.thought }),
         })
       );
+      // Stream thought into the chat's Thinking section in chunks so it appears in real time
+      if (tool === "thinking_tool" && typeof args.thought === "string" && args.thought.trim()) {
+        const thought = args.thought as string;
+        const CHUNK_SIZE = 40;
+        for (let i = 0; i < thought.length; i += CHUNK_SIZE) {
+          const chunk = thought.slice(i, i + CHUNK_SIZE);
+          if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "thinking", data: chunk }));
+          if (i + CHUNK_SIZE < thought.length) await new Promise((r) => setTimeout(r, 25));
+        }
+      }
     }
 
     let streamBuffer = "";
@@ -130,6 +145,8 @@ router.post("/agent/execute-tool", async (req: Request, res: Response): Promise<
         ? (args.query ?? args.path)
         : tool === "web_search"
           ? (args.search_term ?? args.query ?? args.path)
+          : tool === "image_tool"
+            ? (args.query ?? args.prompt ?? args.description)
           : (args.relative_workspace_path ?? args.target_file ?? args.path ?? args.file_path);
       const pathStr = typeof pathVal === "string" ? pathVal : (tool === "list_dir" ? "." : undefined);
       const command = (tool === "run_terminal_cmd" && (typeof args.command === "string" || typeof (args as { cmd?: string }).cmd === "string"))
@@ -147,6 +164,7 @@ router.post("/agent/execute-tool", async (req: Request, res: Response): Promise<
         ...(result.exitCode !== undefined && result.exitCode !== 0 && { failed: true }),
         ...(result.startLine !== undefined && { startLine: result.startLine }),
         ...(result.endLine !== undefined && { endLine: result.endLine }),
+        ...(tool === "thinking_tool" && result.payload?.thought != null && { thought: result.payload.thought }),
       };
       ws.send(JSON.stringify(payload));
     }

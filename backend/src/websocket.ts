@@ -1110,7 +1110,20 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                                     command: (rawTool === "run_terminal_cmd" && typeof command === "string") ? command.trim() : undefined,
                                     content: undefined,
                                     ...(rawTool === "read_file" && readStart != null && readEnd != null && { startLine: readStart, endLine: readEnd }),
+                                    ...(rawTool === "thinking_tool" && typeof inp.thought === "string" && { thought: inp.thought }),
                                   }));
+                                  if (rawTool === "thinking_tool" && typeof inp.thought === "string" && inp.thought.trim()) {
+                                    const thought = inp.thought as string;
+                                    const CHUNK = 40;
+                                    let i = 0;
+                                    const sendChunk = () => {
+                                      const chunk = thought.slice(i, i + CHUNK);
+                                      i += CHUNK;
+                                      if (ws.readyState === ws.OPEN && chunk) ws.send(JSON.stringify({ type: "thinking", data: chunk }));
+                                      if (i < thought.length) setTimeout(sendChunk, 25);
+                                    };
+                                    sendChunk();
+                                  }
                                 } else {
                                   ws.send(JSON.stringify({
                                     type: "tool_call",
@@ -1121,7 +1134,20 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                                     command: (rawTool === "run_terminal_cmd" && typeof command === "string") ? command.trim() : undefined,
                                     content: contentForPayload,
                                     ...(rawTool === "read_file" && readStart != null && readEnd != null && { startLine: readStart, endLine: readEnd }),
+                                    ...(rawTool === "thinking_tool" && typeof inp.thought === "string" && { thought: inp.thought }),
                                   }));
+                                  if (rawTool === "thinking_tool" && typeof inp.thought === "string" && inp.thought.trim()) {
+                                    const thought = inp.thought as string;
+                                    const CHUNK = 40;
+                                    let i = 0;
+                                    const sendChunk = () => {
+                                      const chunk = thought.slice(i, i + CHUNK);
+                                      i += CHUNK;
+                                      if (ws.readyState === ws.OPEN && chunk) ws.send(JSON.stringify({ type: "thinking", data: chunk }));
+                                      if (i < thought.length) setTimeout(sendChunk, 25);
+                                    };
+                                    sendChunk();
+                                  }
                                 }
                                 toolCallSendCount += 1;
                               }

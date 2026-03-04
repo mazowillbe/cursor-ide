@@ -16,6 +16,7 @@ import {
   runCommandStream,
   type WorkspaceId,
 } from "./workspace.js";
+import { config } from "./config.js";
 import {
   isCommandAllowed,
   isCommandAttemptingEscape,
@@ -61,6 +62,8 @@ function normalizeToolName(raw: string): string {
     web_search: "web_search",
     create_diagram: "create_diagram",
     edit_notebook: "edit_notebook",
+    thinking_tool: "thinking_tool",
+    image_tool: "image_tool",
   };
   return map[raw] ?? raw;
 }
@@ -165,6 +168,124 @@ export async function executeTool(
     console.log(LOG_PREFIX, msg, callId, tool, meta ?? "");
 
   try {
+    if (tool === "thinking_tool") {
+      const thought = typeof args.thought === "string" ? args.thought.trim() : "";
+      return {
+        callId,
+        tool: rawTool,
+        success: true,
+        output: thought ? "Thinking recorded." : "No thought provided.",
+        payload: thought ? { thought } : undefined,
+      };
+    }
+
+    if (tool === "image_tool") {
+      const query =
+        (args.query as string) ??
+        (args.prompt as string) ??
+        (args.description as string);
+      if (typeof query !== "string" || !query.trim()) {
+        return { callId, tool: rawTool, success: false, error: "Missing query" };
+      }
+      const q = query.trim();
+      const perPageRaw =
+        (args.per_page as number) ??
+        (args.limit as number) ??
+        (args.count as number);
+      const perPage =
+        typeof perPageRaw === "number" && Number.isFinite(perPageRaw)
+          ? Math.min(12, Math.max(1, Math.round(perPageRaw)))
+          : 6;
+      const color = (args.color as string) ?? undefined;
+      const licenseType = (args.license as string) ?? (args.license_type as string) ?? undefined;
+      const orientation = (args.orientation as string) ?? undefined;
+
+      const searchParams = new URLSearchParams();
+      searchParams.set("q", q);
+      searchParams.set("per_page", String(perPage));
+      if (color && color.trim()) searchParams.set("color", color.trim());
+      // Openverse supports filtering by license; prefer the documented "license" param, but accept legacy license_type too.
+      if (licenseType && licenseType.trim()) {
+        searchParams.set("license", licenseType.trim());
+      }
+      if (orientation && orientation.trim()) searchParams.set("aspect_ratio", orientation.trim());
+
+      const url = `https://api.openverse.engineering/v1/images/?${searchParams.toString()}`;
+      const resp = await fetch(url, {
+        headers: { Accept: "application/json" },
+      });
+      if (!resp.ok) {
+        const bodyText = await resp.text().catch(() => "");
+        const message = bodyText || resp.statusText || "Openverse request failed";
+        return {
+          callId,
+          tool: rawTool,
+          success: false,
+          error: `Openverse API error (${resp.status}): ${message}`,
+        };
+      }
+      const json = (await resp.json().catch(() => ({}))) as {
+        results?: unknown[];
+      };
+      const results = Array.isArray(json.results) ? json.results : [];
+      const images = results.map((r, idx) => {
+        const anyR = r as Record<string, unknown>;
+        const directImage =
+          (anyR.image as string | undefined) ??
+          (anyR.image_url as string | undefined) ??
+          (anyR.url as string | undefined) ??
+          (anyR.foreign_landing_url as string | undefined) ??
+          (anyR.thumbnail as string | undefined) ??
+          "";
+        return {
+          index: idx,
+          id: String(anyR.id ?? ""),
+          title: (anyR.title as string | undefined) || "",
+          url: directImage,
+          thumbnail: (anyR.thumbnail as string | undefined) || "",
+          creator: (anyR.creator as string | undefined) || "",
+          provider: (anyR.provider as string | undefined) || "",
+          source: (anyR.source as string | undefined) || "",
+          license: (anyR.license as string | undefined) || "",
+          licenseVersion: (anyR.license_version as string | undefined) || "",
+        };
+      });
+
+      if (images.length === 0) {
+        return {
+          callId,
+          tool: rawTool,
+          success: true,
+          output: `No Openverse image results for query: "${q}".`,
+          payload: { images: [] },
+        };
+      }
+
+      const best = images[0]!;
+      const summaryLines = images.slice(0, 5).map((img, i) => {
+        const title = img.title || img.id || img.url;
+        const by = img.creator ? ` by ${img.creator}` : "";
+        const license = img.license ? ` (${img.license}${img.licenseVersion ? " " + img.licenseVersion : ""})` : "";
+        return `${i + 1}. ${title}${by} — ${img.url}${license}`;
+      });
+
+      const output =
+        `Openverse image search for "${q}" (showing up to ${images.length} result${images.length === 1 ? "" : "s"}).\n\n` +
+        summaryLines.join("\n") +
+        `\n\nUse the "best" image URL when you need a single image, or pick from payload.images.`;
+
+      return {
+        callId,
+        tool: rawTool,
+        success: true,
+        output,
+        payload: {
+          images,
+          best,
+        },
+      };
+    }
+
     if (tool === "run_terminal_cmd") {
       const command =
         (args.command as string) ??

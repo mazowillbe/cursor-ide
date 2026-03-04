@@ -123,7 +123,8 @@ export default function EditorPanel({
     const toReload = openFilePaths.filter(
       (p) => modifiedSet.has(norm(p)) && !(dirtyByPath[p] ?? false)
     );
-    toReload.forEach((path) => loadFile(path));
+    // Always silent so the editor doesn't flash "Loading…" while the AI is editing in the background
+    toReload.forEach((path) => loadFile(path, { silent: true }));
   }, [refreshTrigger, modifiedPaths, openFilePaths, loadFile, dirtyByPath]);
 
   const content = activeFilePath ? contentByPath[activeFilePath] ?? "" : "";

@@ -48,6 +48,27 @@ async function main() {
   app.use("/api", executeToolRouter);
   app.use("/api", describeImageRouter);
 
+  // Preview iframe may request /@react-refresh, /@vite/client etc. with origin-relative URLs; redirect to prefixed path using Referer.
+  app.get("/@*", (req: express.Request, res: express.Response) => {
+    const referer = (req.headers.referer ?? req.headers.origin ?? "") as string;
+    const m = referer.match(/\/api\/preview\/([^/]+)/);
+    const workspaceId = m ? m[1]! : null;
+    if (!workspaceId) {
+      res.status(404).send("Not found");
+      return;
+    }
+    const target = getPreviewTarget(workspaceId);
+    if (!target) {
+      res.status(404).send("No preview for this workspace");
+      return;
+    }
+    const path = (req.path ?? req.url ?? "").split("?")[0];
+    const qs = req.url?.includes("?") ? "?" + req.url.split("?").slice(1).join("?") : "";
+    const base = `${req.protocol}://${req.get("host") ?? ""}`;
+    const redirectTo = `${base}/api/preview/${workspaceId}${path}${qs}`;
+    res.redirect(302, redirectTo);
+  });
+
   const httpProxyServer = httpProxy.createProxyServer({ ws: true });
 
   app.use(
@@ -137,18 +158,13 @@ async function main() {
 
         if (isJs && prefix) {
           let body = await upstream.text();
-          // Don't rewrite Vite pre-bundled deps (e.g. react/jsx-runtime) — rewriting can break exports and cause "does not provide an export named 'jsx'".
           const isViteDep = downstreamPath.startsWith("/node_modules/.vite/deps/");
-          if (isViteDep) {
-            res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "application/javascript");
-            res.setHeader("Content-Length", Buffer.byteLength(body, "utf8"));
-            res.send(body);
-            return;
-          }
-          // Rewrite absolute path strings that look like URLs (contain @ or .). Skip regex-looking and bare "/" in @vite/client.
           const isViteClient = downstreamPath === "/@vite/client";
+          // For deps: only rewrite strings that are clearly asset paths (dynamic import URLs), not arbitrary strings (avoids breaking exports like "jsx").
           const rewritePath = (path: string) => {
+            if (path.startsWith("/api/preview/")) return path;
             if (isViteClient && (path === "/" || path === "/@vite/client" || path.startsWith("/@vite/client?"))) return path;
+            if (isViteDep) return path.startsWith("/node_modules/") || path.startsWith("/@") ? `${prefix}${path}` : path;
             return /@|\.[a-zA-Z0-9]+$|\.[a-zA-Z0-9]+\?/.test(path) ? `${prefix}${path}` : path;
           };
           body = body
@@ -165,6 +181,7 @@ async function main() {
             body = body.replace(/\$\{host\}\//g, `\${host}${basePath}`);
           }
           // Inject React import for app entry files that lack it. Use full URL so the browser can resolve it (bare "react" fails in proxied modules).
+          // If the file starts with the React Refresh preamble, insert after it so @vitejs/plugin-react can still detect the preamble.
           const isAppEntry =
             downstreamPath === "/src/main.jsx" ||
             downstreamPath === "/src/main.js" ||
@@ -174,7 +191,12 @@ async function main() {
             downstreamPath === "/src/index.js";
           const hasReactImport = /from\s*["']react["']|from\s*["']react\/jsx-runtime["']/.test(body);
           if (isAppEntry && !hasReactImport) {
-            body = "import React from 'https://esm.sh/react';\n" + body;
+            const preambleMatch = body.match(/^(\s*import\s+RefreshRuntime\s+from\s+["']\/@react-refresh["'][^;]*;\s*\n?)/);
+            if (preambleMatch) {
+              body = preambleMatch[1] + "import React from 'https://esm.sh/react';\n" + body.slice(preambleMatch[1].length);
+            } else {
+              body = "import React from 'https://esm.sh/react';\n" + body;
+            }
           }
           const rewritten = body;
           console.log("[preview] rewriting JS", { prefix, path: downstreamPath, length: body.length });

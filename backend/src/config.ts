@@ -24,4 +24,6 @@ export const config = {
   corsOrigin: process.env.CORS_ORIGIN?.trim() || undefined,
   /** Use Supabase files table for persistent workspace storage (enables multi-user on Render). */
   useSupabaseFiles: process.env.USE_SUPABASE_FILES === "1" || process.env.USE_SUPABASE_FILES === "true",
+  /** Optional API key for Openverse image search (Authorization: Bearer). */
+  openverseApiKey: process.env.OPENVERSE_API_KEY?.trim() || undefined,
 } as const;

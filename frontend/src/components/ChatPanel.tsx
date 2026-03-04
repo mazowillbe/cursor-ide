@@ -522,6 +522,7 @@ const EXPLORATION_TOOLS = new Set([
   "codebase_search",
   "websearch",
   "web_search",
+  "image_tool",
   "list_dir",
   "list",
   "glob",
@@ -603,6 +604,8 @@ interface Message {
   content: string;
   streaming?: boolean;
   thinking?: string;
+  thinkingStartedAt?: number;
+  thinkingDurationMs?: number;
   /** When present, assistant message is rendered from blocks (text + tool cards) instead of content. */
   blocks?: ContentBlock[];
 }
@@ -942,7 +945,8 @@ export default function ChatPanel({
               m.id === assistantId ? { ...m, content: streamBufferRef.current, blocks: [...blocksRef.current] } : m
             )
           );
-        } else if (data.type === "tool_call") {
+        } else if (data.type === "tool_call" && data.tool !== "thinking_tool") {
+          // thinking_tool is surfaced via the Thinking section — no tool block
           const callId = data.callId ?? `tool-${blocksRef.current.length}`;
           const toolBlock: ToolCallBlock = {
             type: "tool",
@@ -1046,9 +1050,16 @@ export default function ChatPanel({
           }
         } else if (data.type === "thinking") {
           const text = data.data ?? "";
+          const now = Date.now();
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === assistantId ? { ...m, thinking: (m.thinking ?? "") + text } : m
+              m.id === assistantId
+                ? {
+                    ...m,
+                    thinking: (m.thinking ?? "") + text,
+                    thinkingStartedAt: m.thinkingStartedAt ?? now,
+                  }
+                : m
             )
           );
         } else if (data.type === "preview_ready" && data.workspaceId === workspaceId && data.url) {
@@ -1056,9 +1067,26 @@ export default function ChatPanel({
         } else if (data.type === "preview_refresh" && data.workspaceId === workspaceId) {
           onPreviewRefresh?.();
         } else if (data.type === "end") {
-          const contentToSave = blocksRef.current.length > 0 ? blocksToContent(blocksRef.current) : streamBufferRef.current || "(No response)";
+          const contentToSave =
+            blocksRef.current.length > 0
+              ? blocksToContent(blocksRef.current)
+              : streamBufferRef.current || "(No response)";
+          const endTime = Date.now();
           setMessages((prev) =>
-            prev.map((m) => (m.id === assistantId ? { ...m, content: contentToSave, streaming: false } : m))
+            prev.map((m) => {
+              if (m.id !== assistantId) return m;
+              const hasThinking = (m.thinking ?? "").trim().length > 0;
+              const durationMs =
+                hasThinking && typeof m.thinkingStartedAt === "number"
+                  ? Math.max(0, endTime - m.thinkingStartedAt)
+                  : m.thinkingDurationMs;
+              return {
+                ...m,
+                content: contentToSave,
+                streaming: false,
+                ...(typeof durationMs === "number" ? { thinkingDurationMs: durationMs } : {}),
+              };
+            })
           );
           setStreaming(false);
           ws.close();
@@ -1191,17 +1219,38 @@ export default function ChatPanel({
                   : "text-sm text-gray-300 whitespace-pre-wrap break-words message-content"
               }
             >
-              {m.role === "assistant" && (m.thinking ?? "").trim().length > 0 && (
-                <details className="mb-2 group" open={m.streaming}>
-                  <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-400 list-none flex items-center gap-1 [&::-webkit-details-marker]:hidden">
-                    <span className="inline-block w-0 h-0 border-y-[4px] border-y-transparent border-l-[6px] border-l-gray-500 group-open:rotate-90 group-open:translate-y-0.5 transition-transform" />
-                    AI thinking
-                  </summary>
-                  <pre className="mt-1.5 p-2.5 text-xs bg-surface-600/60 rounded border border-surface-500/50 overflow-x-auto overflow-y-auto max-h-48 whitespace-pre-wrap leading-relaxed text-gray-400">
-                    {(m.thinking ?? "").trim()}
-                  </pre>
-                </details>
-              )}
+              {m.role === "assistant" && (m.thinking ?? "").trim().length > 0 && (() => {
+                const thinkingText = (m.thinking ?? "").trim();
+                const hasThinking = thinkingText.length > 0;
+                if (!hasThinking) return null;
+                const seconds =
+                  typeof m.thinkingDurationMs === "number"
+                    ? Math.max(0.1, m.thinkingDurationMs / 1000)
+                    : undefined;
+                const finished = !m.streaming && typeof seconds === "number";
+                return (
+                  <details className="mb-2 group" open={m.streaming && !finished}>
+                    <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-400 list-none flex items-center gap-1 [&::-webkit-details-marker]:hidden">
+                      <span className="inline-block w-0 h-0 border-y-[4px] border-y-transparent border-l-[6px] border-l-gray-500 group-open:rotate-90 group-open:translate-y-0.5 transition-transform" />
+                      {finished ? (
+                        <>
+                          <strong>Thought</strong>
+                          {typeof seconds === "number" && (
+                            <span className="ml-1 text-[11px] text-gray-500">
+                              for {seconds.toFixed(1)}s
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <strong>Thinking</strong>
+                      )}
+                    </summary>
+                    <pre className="mt-1.5 p-2.5 text-xs bg-surface-600/60 rounded border border-surface-500/50 overflow-x-auto overflow-y-auto max-h-48 whitespace-pre-wrap leading-relaxed text-gray-400">
+                      {thinkingText}
+                    </pre>
+                  </details>
+                );
+              })()}
               {m.role === "user"
                 ? (() => {
                     const visible = getUserVisibleContent(m.content || "");
@@ -1286,6 +1335,21 @@ export default function ChatPanel({
                             </div>
                           );
                         }
+                        if (tb.tool === "image_tool") {
+                          const query = (tb.path ?? "").trim() || "image";
+                          const baseUrl = "https://api.openverse.engineering/v1/images";
+                          const actionLabel = tb.pending ? "Retrieving" : "Retrieved";
+                          return (
+                            <div key={tb.callId} className="text-xs text-gray-400 pl-3 py-0.5 flex items-baseline gap-1 min-w-0">
+                              <span className="shrink-0 font-medium text-gray-300">
+                                {actionLabel} image from
+                              </span>
+                              <span className="truncate">
+                                {baseUrl} — {query}
+                              </span>
+                            </div>
+                          );
+                        }
                         if (tb.tool === "grep" || tb.tool === "grep_search") {
                           const summary = (tb.path ?? tb.command ?? "").trim() || "pattern";
                           const lineLabel = tb.pending ? "Grepping" : "Grepped";
@@ -1351,6 +1415,8 @@ export default function ChatPanel({
                               return <span key={`t-${i}`} dangerouslySetInnerHTML={{ __html: html }} />;
                             }
                             const tb = block as ToolCallBlock;
+                            // thinking_tool blocks feed the Thinking section — no card needed
+                            if (tb.tool === "thinking_tool") return null;
                             const terminalKey = `${m.id}-${tb.callId}`;
                             if (tb.tool === "bash" || tb.tool === "run_terminal_cmd") {
                               if (tb.command !== undefined) {
@@ -1599,10 +1665,10 @@ export default function ChatPanel({
                                     </div>
                                   ) : todoList.length > 0 ? (
                                     <ul className="space-y-1.5 list-none pl-0">
-                                      {todoList.map((todo) => {
+                                      {todoList.map((todo, todoIdx) => {
                                         const done = todo.status === "completed";
                                         return (
-                                          <li key={todo.id} className="flex items-start gap-2">
+                                          <li key={`${todo.id ?? ""}-${todoIdx}`} className="flex items-start gap-2">
                                             <span className="shrink-0 mt-0.5 flex items-center justify-center w-4 h-4 rounded border border-gray-500 bg-[#252526] text-gray-400">
                                               {done ? (
                                                 <svg className="w-3 h-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
