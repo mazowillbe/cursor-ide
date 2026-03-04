@@ -56,21 +56,31 @@ async function main() {
       const host = (target.host && target.host.trim()) || "127.0.0.1";
       const targetUrl = host.includes(":") ? `http://[${host}]:${target.port}` : `http://${host}:${target.port}`;
 
-      // Prefer workspace/paths provided by preview-proxy router, but fall back to parsing
-      // the original URL so HTML/JS/CSS rewriting still works even if middleware wiring
-      // changes or previewWorkspaceId is missing.
+      // Resolve workspaceId: from router-set property, Express params, or parse from URL.
+      // req.params.workspaceId is set by the preview router; originalUrl can differ behind proxies (e.g. Railway).
       const origUrl = (req.originalUrl ?? req.url ?? "/").split("#")[0]!;
-      let workspaceId = (req as express.Request & { previewWorkspaceId?: string }).previewWorkspaceId;
+      let workspaceId =
+        (req as express.Request & { previewWorkspaceId?: string }).previewWorkspaceId ??
+        (req.params && typeof req.params.workspaceId === "string" ? req.params.workspaceId : null) ??
+        (() => {
+          const m = origUrl.match(/^\/api\/preview\/([^/]+)(\/.*)?$/);
+          return m ? m[1]! : null;
+        })();
       let downstreamPath = (req as express.Request & { previewDownstreamPath?: string }).previewDownstreamPath ?? req.url ?? "/";
-      if (!workspaceId) {
-        const m = origUrl.match(/^\/api\/preview\/([^/]+)(\/.*)?$/);
-        if (m) {
-          workspaceId = m[1];
-        }
-      }
       const prefix = workspaceId ? `/api/preview/${workspaceId}` : "";
       const query = origUrl.includes("?") ? "?" + origUrl.split("?")[1] : "";
       const url = `${targetUrl.replace(/\/$/, "")}${downstreamPath.toString().startsWith("/") ? downstreamPath : `/${downstreamPath}`}${query}`;
+
+      console.log("[preview] request", {
+        origUrl,
+        workspaceId: workspaceId ?? "(none)",
+        prefix: prefix || "(empty)",
+        downstreamPath,
+        fetchUrl: url,
+      });
+      if (!prefix) {
+        console.warn("[preview] no prefix — HTML/JS/CSS will not be rewritten; assets may 404");
+      }
 
       try {
         const targetHost = new URL(targetUrl).host;
@@ -82,6 +92,7 @@ async function main() {
         forwardHeaders.host = targetHost;
         const upstream = await fetch(url, { headers: forwardHeaders });
         if (!upstream.ok) {
+          console.warn("[preview] upstream non-OK", { url, status: upstream.status });
           res.status(upstream.status).end();
           return;
         }
@@ -90,11 +101,23 @@ async function main() {
         const isJs = ct.includes("javascript") || ct.includes("ecmascript");
 
         const isIndexRequest = downstreamPath === "/" || downstreamPath === "" || downstreamPath === "/index.html";
+        console.log("[preview] upstream response", {
+          downstreamPath,
+          contentType: ct.slice(0, 50),
+          isHtml,
+          isJs,
+          isIndexRequest,
+          willRewriteHtml: isHtml && isIndexRequest && !!prefix,
+          willRewriteJs: isJs && !!prefix,
+        });
+
         if (isHtml && isIndexRequest && prefix) {
           const html = await upstream.text();
-          // Rewrite src/href: capture full path so we prepend /api/preview/:workspaceId (e.g. /node_modules/.vite/... -> /api/preview/xxx/node_modules/.vite/...)
+          const matchCount = (html.match(/(src|href)\s*=\s*(["'])(\/)(?!\/)([^"']*)["']/g) ?? []).length;
+          console.log("[preview] rewriting HTML", { prefix, srcHrefMatchCount: matchCount });
+          // Rewrite src/href so absolute paths go through the preview proxy (allow optional whitespace around =)
           const injected = html.replace(
-            /(src|href)=(["'])(\/)(?!\/)([^"']*)["']/g,
+            /(src|href)\s*=\s*(["'])(\/)(?!\/)([^"']*)["']/g,
             (_: string, attr: string, quote: string, _slash: string, pathRest: string) =>
               `${attr}=${quote}${prefix}/${pathRest}${quote}`
           );
@@ -105,6 +128,7 @@ async function main() {
 
         if (isJs && prefix) {
           const body = await upstream.text();
+          console.log("[preview] rewriting JS", { prefix, path: downstreamPath, length: body.length });
           // Rewrite absolute paths in import/from so they go through the preview proxy.
           // Avoid: "http:// (use (?!\/)); already-rewritten /api/preview/ (use (?!api\/preview\/)).
           const rewritten = body
@@ -119,6 +143,7 @@ async function main() {
 
         if (ct.includes("text/css") && prefix) {
           const body = await upstream.text();
+          console.log("[preview] rewriting CSS", { prefix, path: downstreamPath });
           const rewritten = body.replace(/url\((["']?)(\/)(?!\/)/g, `url($1${prefix}$2`);
           res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "text/css");
           res.setHeader("Content-Length", Buffer.byteLength(rewritten, "utf8"));
@@ -126,6 +151,7 @@ async function main() {
           return;
         }
 
+        console.log("[preview] passthrough (no rewrite)", { downstreamPath, contentType: ct.slice(0, 40) });
         res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "application/octet-stream");
         const buf = await upstream.arrayBuffer();
         res.end(Buffer.from(buf));
