@@ -116,11 +116,20 @@ async function main() {
           const matchCount = (html.match(/(src|href)\s*=\s*(["'])(\/)(?!\/)([^"']*)["']/g) ?? []).length;
           console.log("[preview] rewriting HTML", { prefix, srcHrefMatchCount: matchCount });
           // Rewrite src/href so absolute paths go through the preview proxy (allow optional whitespace around =)
-          const injected = html.replace(
+          let injected = html.replace(
             /(src|href)\s*=\s*(["'])(\/)(?!\/)([^"']*)["']/g,
             (_: string, attr: string, quote: string, _slash: string, pathRest: string) =>
               `${attr}=${quote}${prefix}/${pathRest}${quote}`
           );
+          // Inject WebSocket interceptor so Vite HMR connects to /api/preview/:id/ instead of /
+          const wsInterceptor = `<script>(function(){var b=location.pathname.replace(/\\/@vite\\/client.*$/,"").replace(/\\/?$/,"/");window.__VITE_HMR_BASE__=b;var O=WebSocket;window.WebSocket=function(u,a){if(typeof u==="string"&&(u.startsWith("ws://")||u.startsWith("wss://"))&&!u.includes("/api/preview/")){try{var url=new URL(u,location.href);url.pathname=b||"/";u=url.toString()}catch(e){}}return new O(u,a)};})();</script>`;
+          if (injected.includes("<head>")) {
+            injected = injected.replace("<head>", "<head>" + wsInterceptor);
+          } else if (injected.includes("<html>")) {
+            injected = injected.replace("<html>", "<html>" + wsInterceptor);
+          } else {
+            injected = wsInterceptor + injected;
+          }
           res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "text/html; charset=utf-8");
           res.send(injected);
           return;
@@ -146,6 +155,18 @@ async function main() {
             body = body.replace(/(\w+)\s*\+\s*["']\/["']/g, (m, v) => (v === "host" || v === "origin" ? `${v} + "${basePath}"` : m));
             body = body.replace(/(\w+)\s*\+\s*'\/'/g, (m, v) => (v === "host" || v === "origin" ? `${v} + '${basePath}'` : m));
             body = body.replace(/\$\{host\}\//g, `\${host}${basePath}`);
+          }
+          // Inject React import for app entry files that use JSX but lack "import React" (fixes "React is not defined")
+          const isAppEntry =
+            downstreamPath === "/src/main.jsx" ||
+            downstreamPath === "/src/main.js" ||
+            downstreamPath === "/src/App.jsx" ||
+            downstreamPath === "/src/App.js" ||
+            downstreamPath === "/src/index.jsx" ||
+            downstreamPath === "/src/index.js";
+          const hasReactImport = /from\s*["']react["']|from\s*["']react\/jsx-runtime["']/.test(body);
+          if (isAppEntry && !hasReactImport) {
+            body = "import React from 'react';\n" + body;
           }
           const rewritten = body;
           console.log("[preview] rewriting JS", { prefix, path: downstreamPath, length: body.length });
