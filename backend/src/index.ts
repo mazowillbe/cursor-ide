@@ -58,15 +58,17 @@ async function main() {
       const workspaceId = (req as express.Request & { previewWorkspaceId?: string }).previewWorkspaceId;
       const downstreamPath = (req as express.Request & { previewDownstreamPath?: string }).previewDownstreamPath ?? req.url ?? "/";
 
-      // For the root document (index.html), inject <base href="..."> so script/style URLs resolve under the preview path
+      // For the root document (index.html), rewrite origin-relative URLs (src="/...", href="/...") so they
+      // go through the preview path. <base> does not affect paths that start with "/" (they stay origin-relative).
       if ((downstreamPath === "/" || downstreamPath === "") && workspaceId) {
-        const protocol = req.protocol;
-        const hostHeader = req.get("host") ?? "";
-        const baseHref = `${protocol}://${hostHeader}/api/preview/${workspaceId}/`;
+        const prefix = `/api/preview/${workspaceId}`;
         try {
           const upstream = await fetch(`${targetUrl.replace(/\/$/, "")}/`);
           const html = await upstream.text();
-          const injected = html.replace(/(<head[^>]*>)/i, `$1<base href="${baseHref.replace(/"/g, "&quot;")}">`);
+          const injected = html.replace(
+            /(src|href)=(["'])\/(?!\/)/g,
+            (_, attr: string, quote: string) => `${attr}=${quote}${prefix}/`
+          );
           res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "text/html; charset=utf-8");
           res.send(injected);
           return;
