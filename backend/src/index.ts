@@ -128,11 +128,13 @@ async function main() {
 
         if (isJs && prefix) {
           const body = await upstream.text();
-          // Rewrite every absolute path string (full path) so import("/node_modules/...") etc. go through the proxy.
+          // Rewrite absolute path strings that look like URLs (contain @ or .) so we don't corrupt regex literals (e.g. "/(.*)/" in @vite/client).
+          const rewritePath = (path: string) =>
+            /@|\.[a-zA-Z0-9]+$|\.[a-zA-Z0-9]+\?/.test(path) ? `${prefix}${path}` : path;
           const rewritten = body
-            .replace(/"(\/(?!\/)(?!api\/preview\/)[^"]*)"/g, (_, path) => `"${prefix}${path}"`)
-            .replace(/'(\/(?!\/)(?!api\/preview\/)[^']*)'/g, (_, path) => `'${prefix}${path}'`)
-            .replace(/`(\/(?!\/)(?!api\/preview\/)[^`]*)`/g, (_, path) => `\`${prefix}${path}\``);
+            .replace(/"(\/(?!\/)(?!api\/preview\/)[^"]*)"/g, (_, path) => `"${rewritePath(path)}"`)
+            .replace(/'(\/(?!\/)(?!api\/preview\/)[^']*)'/g, (_, path) => `'${rewritePath(path)}'`)
+            .replace(/`(\/(?!\/)(?!api\/preview\/)[^`]*)`/g, (_, path) => `\`${rewritePath(path)}\``);
           console.log("[preview] rewriting JS", { prefix, path: downstreamPath, length: body.length });
           res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "application/javascript");
           res.setHeader("Content-Length", Buffer.byteLength(rewritten, "utf8"));
@@ -190,12 +192,14 @@ async function main() {
         const newPath = (match[2] ?? "") || "/";
         const origUrl = request.url;
         request.url = newPath;
+        console.log("[preview] WS upgrade", { workspaceId, target, newPath });
         httpProxyServer.ws(request, socket, head, { target }, (err: Error | null) => {
           request.url = origUrl;
           if (err) console.error("[preview] proxy ws error:", err?.message);
           socket.destroy();
         });
       } else {
+        console.warn("[preview] WS upgrade rejected", { url: url.slice(0, 80), workspaceId, hasTarget: !!previewTarget });
         socket.destroy();
       }
       return;
