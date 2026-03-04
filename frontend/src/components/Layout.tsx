@@ -78,14 +78,20 @@ export default function Layout({
     return () => mq.removeEventListener("change", handle);
   }, []);
 
+  // When on Preview tab, poll for dev server so manual "npm run dev" in main terminal is picked up
   useEffect(() => {
     if (centerView !== "preview" || previewUrl) return;
-    getPreviewStatus(workspaceId).then((status) => {
-      if (status) {
-        setPreviewUrl(getPreviewIframeUrl(workspaceId, status.url));
-        setPreviewPort(status.port);
-      }
-    });
+    const tryLoad = () => {
+      getPreviewStatus(workspaceId).then((status) => {
+        if (status) {
+          setPreviewUrl(getPreviewIframeUrl(workspaceId, status.url));
+          setPreviewPort(status.port);
+        }
+      });
+    };
+    tryLoad();
+    const id = setInterval(tryLoad, 2500);
+    return () => clearInterval(id);
   }, [centerView, workspaceId, previewUrl]);
 
   const handleSidebarCollapse = useCallback(() => {

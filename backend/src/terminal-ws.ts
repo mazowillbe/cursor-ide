@@ -3,17 +3,22 @@
  * Spawns a PTY in the workspace so the user can run commands.
  * Nothing is written to the terminal from the app — it's purely user-driven.
  * Falls back to spawn when node-pty fails (e.g. on some Windows setups).
+ * When output looks like a dev server (e.g. "Local: http://localhost:5173"), we register the port
+ * so the Preview tab can show the app (same as when the AI runs npm run dev).
  */
 import { spawn } from "child_process";
 import fs from "fs/promises";
 import type { WebSocket } from "ws";
 import { getWorkspacePath } from "./workspace.js";
+import { detectAndRegister, waitForPortReachable, setPreviewHost } from "./preview-manager.js";
 
 export const TERMINAL_WS_PATH = "/api/terminal";
 
 type ProcHandle = { kill: () => void; write: (s: string) => void; resize?: (cols: number, rows: number) => void };
 
-function spawnWithPty(ws: WebSocket, cwd: string): ProcHandle | null {
+const TERMINAL_OUTPUT_BUFFER_MAX = 8192;
+
+function spawnWithPty(ws: WebSocket, cwd: string, workspaceId: string): ProcHandle | null {
   try {
     const ptyModule = require("node-pty");
     const shell = process.platform === "win32" ? "cmd.exe" : process.env.SHELL || "bash";
@@ -28,8 +33,16 @@ function spawnWithPty(ws: WebSocket, cwd: string): ProcHandle | null {
       (ptyOpts as Record<string, unknown>).useConpty = false;
     }
     const ptyProcess = ptyModule.spawn(shell, args, ptyOpts);
+    let outBuffer = "";
     ptyProcess.onData((data: string) => {
       if (ws.readyState === 1) ws.send(data);
+      outBuffer = (outBuffer + data).slice(-TERMINAL_OUTPUT_BUFFER_MAX);
+      const port = detectAndRegister(workspaceId, outBuffer);
+      if (port != null) {
+        waitForPortReachable(port, 15000).then((host) => {
+          if (host) setPreviewHost(workspaceId, host);
+        });
+      }
     });
     ptyProcess.onExit(() => ws.close());
     return {
@@ -42,13 +55,30 @@ function spawnWithPty(ws: WebSocket, cwd: string): ProcHandle | null {
   }
 }
 
+function appendOutputAndDetectPort(
+  ws: WebSocket,
+  workspaceId: string,
+  outBuffer: { current: string },
+  data: string
+): void {
+  if (ws.readyState === 1) ws.send(data);
+  outBuffer.current = (outBuffer.current + data).slice(-TERMINAL_OUTPUT_BUFFER_MAX);
+  const port = detectAndRegister(workspaceId, outBuffer.current);
+  if (port != null) {
+    waitForPortReachable(port, 15000).then((host) => {
+      if (host) setPreviewHost(workspaceId, host);
+    });
+  }
+}
+
 /**
  * Spawn a shell with a real PTY using `script` (Linux), so when node-pty
  * fails (e.g. in Docker) we still get TTY behavior (colors, interactive programs).
  */
-function spawnWithChildProcess(ws: WebSocket, cwd: string): ProcHandle {
+function spawnWithChildProcess(ws: WebSocket, cwd: string, workspaceId: string): ProcHandle {
   const shell = process.platform === "win32" ? "cmd.exe" : process.env.SHELL || "bash";
   const env = { ...process.env, TERM: "xterm-256color", NODE_ENV: "development" };
+  const outBuffer = { current: "" };
 
   if (process.platform !== "win32") {
     try {
@@ -60,12 +90,8 @@ function spawnWithChildProcess(ws: WebSocket, cwd: string): ProcHandle {
       });
       child.stdout?.setEncoding("utf8");
       child.stderr?.setEncoding("utf8");
-      child.stdout?.on("data", (d: string) => {
-        if (ws.readyState === 1) ws.send(d);
-      });
-      child.stderr?.on("data", (d: string) => {
-        if (ws.readyState === 1) ws.send(d);
-      });
+      child.stdout?.on("data", (d: string) => appendOutputAndDetectPort(ws, workspaceId, outBuffer, d));
+      child.stderr?.on("data", (d: string) => appendOutputAndDetectPort(ws, workspaceId, outBuffer, d));
       child.on("exit", () => ws.close());
       return {
         kill: () => child.kill(),
@@ -84,12 +110,8 @@ function spawnWithChildProcess(ws: WebSocket, cwd: string): ProcHandle {
   });
   child.stdout?.setEncoding("utf8");
   child.stderr?.setEncoding("utf8");
-  child.stdout?.on("data", (d: string) => {
-    if (ws.readyState === 1) ws.send(d);
-  });
-  child.stderr?.on("data", (d: string) => {
-    if (ws.readyState === 1) ws.send(d);
-  });
+  child.stdout?.on("data", (d: string) => appendOutputAndDetectPort(ws, workspaceId, outBuffer, d));
+  child.stderr?.on("data", (d: string) => appendOutputAndDetectPort(ws, workspaceId, outBuffer, d));
   child.on("exit", () => ws.close());
   return {
     kill: () => child.kill(),
@@ -115,10 +137,10 @@ export function attachTerminalWebSocket(
       await fs.mkdir(cwd, { recursive: true });
       console.log("[terminal-ws] Connecting workspace:", workspaceId, "cwd:", cwd);
 
-      proc = spawnWithPty(ws, cwd);
+      proc = spawnWithPty(ws, cwd, workspaceId);
       if (!proc) {
         console.warn("[terminal-ws] node-pty failed, using spawn fallback");
-        proc = spawnWithChildProcess(ws, cwd);
+        proc = spawnWithChildProcess(ws, cwd, workspaceId);
       }
 
       const procRef = proc;
