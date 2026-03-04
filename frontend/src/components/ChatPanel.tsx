@@ -1108,7 +1108,7 @@ export default function ChatPanel({
   };
 
   return (
-    <div className={`h-full flex flex-col bg-zinc-900 border-l border-zinc-700 ${isMobile ? "chat-panel-mobile" : ""} chat-panel`}>
+    <div className={`h-full flex flex-col bg-zinc-900 ${isMobile ? "chat-panel-mobile" : "border-l border-zinc-700"} chat-panel`}>
       <div className="flex-shrink-0 flex flex-col bg-zinc-900">
         <div className="flex items-center gap-1 px-2 py-1.5 border-b border-zinc-700 overflow-x-auto bg-zinc-900">
           <button
