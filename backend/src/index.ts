@@ -128,13 +128,12 @@ async function main() {
 
         if (isJs && prefix) {
           const body = await upstream.text();
-          console.log("[preview] rewriting JS", { prefix, path: downstreamPath, length: body.length });
-          // Rewrite absolute paths in import/from so they go through the preview proxy.
-          // Avoid: "http:// (use (?!\/)); already-rewritten /api/preview/ (use (?!api\/preview\/)).
+          // Rewrite every absolute path string (full path) so import("/node_modules/...") etc. go through the proxy.
           const rewritten = body
-            .replace(/\("(\/(?!\/)(?!api\/preview\/))/g, `"${prefix}$1`)
-            .replace(/\('(\/(?!\/)(?!api\/preview\/))/g, `'${prefix}$1`)
-            .replace(/`(\/(?!\/)(?!api\/preview\/))/g, `\`${prefix}$1`);
+            .replace(/"(\/(?!\/)(?!api\/preview\/)[^"]*)"/g, (_, path) => `"${prefix}${path}"`)
+            .replace(/'(\/(?!\/)(?!api\/preview\/)[^']*)'/g, (_, path) => `'${prefix}${path}'`)
+            .replace(/`(\/(?!\/)(?!api\/preview\/)[^`]*)`/g, (_, path) => `\`${prefix}${path}\``);
+          console.log("[preview] rewriting JS", { prefix, path: downstreamPath, length: body.length });
           res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "application/javascript");
           res.setHeader("Content-Length", Buffer.byteLength(rewritten, "utf8"));
           res.send(rewritten);
