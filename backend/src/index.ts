@@ -55,13 +55,22 @@ async function main() {
     getPreviewProxyRouter(async (req: express.Request, res: express.Response, target: { host: string; port: number }) => {
       const host = (target.host && target.host.trim()) || "127.0.0.1";
       const targetUrl = host.includes(":") ? `http://[${host}]:${target.port}` : `http://${host}:${target.port}`;
-      const workspaceId = (req as express.Request & { previewWorkspaceId?: string }).previewWorkspaceId;
-      const downstreamPath = (req as express.Request & { previewDownstreamPath?: string }).previewDownstreamPath ?? req.url ?? "/";
+
+      // Prefer workspace/paths provided by preview-proxy router, but fall back to parsing
+      // the original URL so HTML/JS/CSS rewriting still works even if middleware wiring
+      // changes or previewWorkspaceId is missing.
+      const origUrl = (req.originalUrl ?? req.url ?? "/").split("#")[0]!;
+      let workspaceId = (req as express.Request & { previewWorkspaceId?: string }).previewWorkspaceId;
+      let downstreamPath = (req as express.Request & { previewDownstreamPath?: string }).previewDownstreamPath ?? req.url ?? "/";
+      if (!workspaceId) {
+        const m = origUrl.match(/^\/api\/preview\/([^/]+)(\/.*)?$/);
+        if (m) {
+          workspaceId = m[1];
+        }
+      }
       const prefix = workspaceId ? `/api/preview/${workspaceId}` : "";
-      const query = (req.originalUrl ?? req.url ?? "").includes("?")
-        ? "?" + (req.originalUrl ?? req.url).split("?")[1]
-        : "";
-      const url = `${targetUrl.replace(/\/$/, "")}${downstreamPath.startsWith("/") ? downstreamPath : `/${downstreamPath}`}${query}`;
+      const query = origUrl.includes("?") ? "?" + origUrl.split("?")[1] : "";
+      const url = `${targetUrl.replace(/\/$/, "")}${downstreamPath.toString().startsWith("/") ? downstreamPath : `/${downstreamPath}`}${query}`;
 
       try {
         const targetHost = new URL(targetUrl).host;
