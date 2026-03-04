@@ -156,7 +156,7 @@ async function main() {
             body = body.replace(/(\w+)\s*\+\s*'\/'/g, (m, v) => (v === "host" || v === "origin" ? `${v} + '${basePath}'` : m));
             body = body.replace(/\$\{host\}\//g, `\${host}${basePath}`);
           }
-          // Inject React import for app entry files that use JSX but lack "import React" (fixes "React is not defined")
+          // Inject React import for app entry files that lack it. Use full URL so the browser can resolve it (bare "react" fails in proxied modules).
           const isAppEntry =
             downstreamPath === "/src/main.jsx" ||
             downstreamPath === "/src/main.js" ||
@@ -166,7 +166,7 @@ async function main() {
             downstreamPath === "/src/index.js";
           const hasReactImport = /from\s*["']react["']|from\s*["']react\/jsx-runtime["']/.test(body);
           if (isAppEntry && !hasReactImport) {
-            body = "import React from 'react';\n" + body;
+            body = "import React from 'https://esm.sh/react';\n" + body;
           }
           const rewritten = body;
           console.log("[preview] rewriting JS", { prefix, path: downstreamPath, length: body.length });
