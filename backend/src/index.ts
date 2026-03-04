@@ -29,6 +29,7 @@ async function main() {
   await ensureWorkspaceRoot();
 
   const app = express();
+  app.set("trust proxy", 1);
   const corsOpts = config.corsOrigin
     ? { origin: config.corsOrigin.split(",").map((o) => o.trim()).filter(Boolean) }
     : { origin: true };
@@ -51,12 +52,31 @@ async function main() {
 
   app.use(
     "/api/preview",
-    getPreviewProxyRouter((req: express.Request, res: express.Response, target: { host: string; port: number }) => {
+    getPreviewProxyRouter(async (req: express.Request, res: express.Response, target: { host: string; port: number }) => {
       const host = (target.host && target.host.trim()) || "127.0.0.1";
       const targetUrl = host.includes(":") ? `http://[${host}]:${target.port}` : `http://${host}:${target.port}`;
-      // req.url is relative to mount, e.g. /workspaceId/ or /workspaceId/path -> strip first segment
-      const origUrl = req.url ?? "/";
-      req.url = origUrl.replace(/^\/[^/]+/, "") || "/";
+      const workspaceId = (req as express.Request & { previewWorkspaceId?: string }).previewWorkspaceId;
+      const downstreamPath = (req as express.Request & { previewDownstreamPath?: string }).previewDownstreamPath ?? req.url ?? "/";
+
+      // For the root document (index.html), inject <base href="..."> so script/style URLs resolve under the preview path
+      if ((downstreamPath === "/" || downstreamPath === "") && workspaceId) {
+        const protocol = req.protocol;
+        const hostHeader = req.get("host") ?? "";
+        const baseHref = `${protocol}://${hostHeader}/api/preview/${workspaceId}/`;
+        try {
+          const upstream = await fetch(`${targetUrl.replace(/\/$/, "")}/`);
+          const html = await upstream.text();
+          const injected = html.replace(/(<head[^>]*>)/i, `$1<base href="${baseHref.replace(/"/g, "&quot;")}">`);
+          res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "text/html; charset=utf-8");
+          res.send(injected);
+          return;
+        } catch (e) {
+          console.error("[preview] fetch index error:", (e as Error)?.message);
+          if (!res.headersSent) res.status(502).json({ error: "Preview proxy error", detail: (e as Error)?.message });
+          return;
+        }
+      }
+
       httpProxyServer.web(req, res, { target: targetUrl, changeOrigin: true }, (err: Error | null) => {
         if (err) {
           console.error("[preview] proxy web error:", err?.message, "target:", targetUrl);

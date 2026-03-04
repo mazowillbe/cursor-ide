@@ -33,7 +33,10 @@ export function getPreviewProxyRouter(
     }
     // req.url is the path after mount; strip the /:workspaceId segment so proxy gets the downstream path
     const origUrl = req.url ?? "/";
-    req.url = origUrl.replace(/^\/[^/]*/, "") || "/";
+    const downstreamPath = origUrl.replace(/^\/[^/]*/, "") || "/";
+    req.url = downstreamPath;
+    (req as Request & { previewWorkspaceId?: string; previewDownstreamPath?: string }).previewWorkspaceId = workspaceId;
+    (req as Request & { previewWorkspaceId?: string; previewDownstreamPath?: string }).previewDownstreamPath = downstreamPath;
     proxyWeb(req, res, target);
   });
 

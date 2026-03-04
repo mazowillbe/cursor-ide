@@ -30,8 +30,10 @@ export interface MiniTerminalProps {
   onKill?: () => void;
 }
 
-/** Height for 6 lines at ~18px line height */
-const SIX_LINES_HEIGHT = 108;
+/** Line height in px (match xterm fontSize 12 + padding). */
+const LINE_HEIGHT_PX = 18;
+/** Max height for 6 lines; beyond this the body scrolls. */
+const SIX_LINES_HEIGHT = LINE_HEIGHT_PX * 6;
 
 /** Short command for header: "cd, npm run" style (first command + next part's start), max ~28 chars */
 function shortCommand(fullCmd: string): string {
@@ -115,12 +117,22 @@ const Spinner = () => (
   </svg>
 );
 
+/** Number of lines in prompt + output (command line counts as 1, then each \\n in output). */
+function countLines(fullCmd: string, output: string): number {
+  const cmdLine = 1;
+  const outputLines = output ? output.split(/\r?\n/).length : 0;
+  return cmdLine + outputLines;
+}
+
 export default function MiniTerminal({ label, cmdName: _cmdName, fullCmd, output, failed = false, aborted = false, onShowInMainTerminal, onClose, onKill }: MiniTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<{ term: import("xterm").Terminal; dispose: () => void } | null>(null);
   const outputLengthRef = useRef(0);
 
   const headerSummary = shortCommand(fullCmd);
+  const totalLines = countLines(fullCmd, output);
+  const visibleLines = Math.min(Math.max(totalLines, 1), 6);
+  const bodyHeight = visibleLines * LINE_HEIGHT_PX;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -234,12 +246,15 @@ export default function MiniTerminal({ label, cmdName: _cmdName, fullCmd, output
         </div>
       </div>
 
-      {/* Terminal output block (same as file explorer background); extra pr for scrollbar clearance */}
+      {/* Terminal output block: grows with streamed output up to 6 lines, then scrollable */}
       <div
         ref={containerRef}
-        className="mini-terminal-body w-full overflow-hidden pl-3 pr-4 py-2"
+        className="mini-terminal-body w-full pl-3 pr-4 py-2"
         style={{
-          height: SIX_LINES_HEIGHT,
+          minHeight: LINE_HEIGHT_PX,
+          height: bodyHeight,
+          maxHeight: SIX_LINES_HEIGHT,
+          overflow: "hidden",
           backgroundColor: EXPLORER_BG,
         }}
         data-mini-terminal
