@@ -6,13 +6,17 @@ import path from "path";
 const BT = "`";
 
 /**
- * Build system prompt with escaped backticks (via BT) and current working directory in <env>.
- * @param workingDir - Project/workspace path.
+ * Build system prompt with escaped backticks (via BT) and current working directory in <env> and <cwd>.
+ * @param workingDir - Absolute project/workspace path (all terminal commands run from here).
  * @param isGitRepo - Whether the directory is a git repository (e.g. after clone or git init).
+ * @param projectName - Optional human-readable project name to show with the cwd.
  */
-function buildSystemPrompt(workingDir: string, isGitRepo: boolean): string {
+function buildSystemPrompt(workingDir: string, isGitRepo: boolean, projectName?: string): string {
   const today = new Date().toISOString().slice(0, 10);
   const gitRepoLine = `Is directory a git repo: ${isGitRepo ? "yes" : "no"}`;
+  const projectLine = projectName?.trim()
+    ? `Project name: ${projectName.trim()}\n\n`
+    : "";
   return `You are an AI coding assistant, powered by GPT-5.
 You are an interactive CLI tool that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.
 
@@ -256,10 +260,17 @@ ${BT}${BT}${BT}
 
 Note on file mentions: Users may reference files with a leading '@' (e.g., ${BT}@src/hi.ts${BT}). This is shorthand; the actual filesystem path is ${BT}src/hi.ts${BT}. Strip the leading '@' when using paths.
 
+<cwd>
+CRITICAL — Current working directory for this workspace (absolute path):
+${projectLine}${workingDir}
+
+All \`run_terminal_cmd\` invocations are executed with this directory as the current working directory. You do not need to \`cd\` into this path — the backend already runs every command here. When referring to the project root in your reasoning or in commands, use this exact path. File paths in \`read_file\`, \`edit_file\`, etc. are relative to this directory.
+</cwd>
+
 Here is useful information about the environment you are running in:
 <env>
 OS: ${process.platform}
-Working directory: ${workingDir}
+Working directory (same as <cwd>): ${workingDir}
 ${gitRepoLine}
 Today's date: ${today}
 </env>
@@ -300,8 +311,9 @@ export function getCustomToolNamesSync(): string[] {
  * exist in OpenCode, causing "Invalid Tool" errors. OpenCode has: read, grep, glob,
  * bash, edit, write, webfetch (no "list" tool - use glob or bash ls).
  * @param workingDir - Current working directory for the agent (project path); injected into <env> so the AI knows where it is.
+ * @param projectName - Optional project name (from DB) to include in the cwd section.
  */
-export async function getHardcodedAgentConfig(workingDir: string): Promise<string | null> {
+export async function getHardcodedAgentConfig(workingDir: string, projectName?: string): Promise<string | null> {
   try {
     await fs.mkdir(stagingDir, { recursive: true });
   } catch {
@@ -310,7 +322,7 @@ export async function getHardcodedAgentConfig(workingDir: string): Promise<strin
 
   const isGitRepo = existsSync(path.join(workingDir, ".git"));
   const promptPath = path.join(stagingDir, "system-prompt.txt");
-  const promptContent = buildSystemPrompt(workingDir, isGitRepo);
+  const promptContent = buildSystemPrompt(workingDir, isGitRepo, projectName);
 
   try {
     await fs.writeFile(promptPath, promptContent, "utf-8");

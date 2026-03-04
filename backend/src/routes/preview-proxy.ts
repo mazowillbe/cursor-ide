@@ -2,6 +2,7 @@
  * Preview proxy: secure proxy for dev server (e.g. Vite on :5173) per workspace.
  * GET /api/preview/:workspaceId/* -> http://127.0.0.1:port/*
  * WebSocket upgrade /api/preview/:workspaceId -> ws://127.0.0.1:port (for HMR).
+ * Uses router.use("/:workspaceId") so /api/preview/xyz, /api/preview/xyz/, and /api/preview/xyz/any/path all match.
  */
 
 import { Router, type Request, type Response } from "express";
@@ -22,23 +23,17 @@ export function getPreviewProxyRouter(
     res.json({ url: `http://localhost:${port}`, port });
   });
 
-  router.all("/:workspaceId", (req: Request, res: Response) => {
+  // Match /:workspaceId, /:workspaceId/, and /:workspaceId/any/subpath (iframe and all assets)
+  router.use("/:workspaceId", (req: Request, res: Response, next) => {
     const workspaceId = req.params.workspaceId;
     const target = workspaceId ? getPreviewTarget(workspaceId) : null;
     if (!target) {
       res.status(404).json({ error: "No preview for this workspace" });
       return;
     }
-    proxyWeb(req, res, target);
-  });
-
-  router.all("/:workspaceId/*", (req: Request, res: Response) => {
-    const workspaceId = req.params.workspaceId;
-    const target = workspaceId ? getPreviewTarget(workspaceId) : null;
-    if (!target) {
-      res.status(404).json({ error: "No preview for this workspace" });
-      return;
-    }
+    // req.url is the path after mount; strip the /:workspaceId segment so proxy gets the downstream path
+    const origUrl = req.url ?? "/";
+    req.url = origUrl.replace(/^\/[^/]*/, "") || "/";
     proxyWeb(req, res, target);
   });
 

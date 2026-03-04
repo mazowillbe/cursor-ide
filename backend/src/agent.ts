@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { spawn, type ChildProcess } from "child_process";
 import { getWorkspacePath, createWorkspaceWithId } from "./workspace.js";
 import { getHardcodedAgentConfig } from "./agent-config.js";
+import { createServerClient } from "./lib/supabase/server.js";
 
 const require = createRequire(import.meta.url);
 import { config } from "./config.js";
@@ -57,10 +58,22 @@ export async function runOpenCode(
   chatSessionId?: string
 ): Promise<ProcessHandle> {
   await createWorkspaceWithId(workspaceId);
-  const cwd = getWorkspacePath(workspaceId);
+  const cwd = path.resolve(getWorkspacePath(workspaceId));
+  let projectName: string | undefined;
+  try {
+    const supabase = createServerClient();
+    const { data: project } = await supabase
+      .from("projects")
+      .select("name")
+      .eq("id", workspaceId)
+      .single();
+    if (project?.name) projectName = project.name;
+  } catch {
+    // Supabase not configured or query failed; prompt will omit project name
+  }
   const opencode = config.openCodePath;
   const modelId = model || config.openCodeDefaultModel;
-  const configPath = await getHardcodedAgentConfig(cwd);
+  const configPath = await getHardcodedAgentConfig(cwd, projectName);
   const backendUrl = `http://127.0.0.1:${config.port}`;
   const zenAuthEnv = setupZenAuth();
   const env: NodeJS.ProcessEnv = {
