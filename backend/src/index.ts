@@ -127,18 +127,27 @@ async function main() {
         }
 
         if (isJs && prefix) {
-          const body = await upstream.text();
-          // Rewrite absolute path strings that look like URLs (contain @ or .), but do not rewrite "/" or "/@vite/client"
-          // in the @vite/client script — the client uses those to derive the WebSocket base from import.meta.url.
+          let body = await upstream.text();
+          // Rewrite absolute path strings that look like URLs (contain @ or .). Skip regex-looking and bare "/" in @vite/client.
           const isViteClient = downstreamPath === "/@vite/client";
           const rewritePath = (path: string) => {
             if (isViteClient && (path === "/" || path === "/@vite/client" || path.startsWith("/@vite/client?"))) return path;
             return /@|\.[a-zA-Z0-9]+$|\.[a-zA-Z0-9]+\?/.test(path) ? `${prefix}${path}` : path;
           };
-          const rewritten = body
+          body = body
             .replace(/"(\/(?!\/)(?!api\/preview\/)[^"]*)"/g, (_, path) => `"${rewritePath(path)}"`)
             .replace(/'(\/(?!\/)(?!api\/preview\/)[^']*)'/g, (_, path) => `'${rewritePath(path)}'`)
             .replace(/`(\/(?!\/)(?!api\/preview\/)[^`]*)`/g, (_, path) => `\`${rewritePath(path)}\``);
+          // Force HMR WebSocket base in @vite/client so it connects to /api/preview/:id/ not /.
+          if (isViteClient) {
+            const basePath = `${prefix}/`;
+            body = body.replace(/\b(base|path)\s*=\s*["']\/["']/g, `$1 = "${basePath}"`);
+            body = body.replace(/\b(base|path)\s*=\s*`\/`/g, `$1 = \`${basePath}\``);
+            body = body.replace(/(\w+)\s*\+\s*["']\/["']/g, (m, v) => (v === "host" || v === "origin" ? `${v} + "${basePath}"` : m));
+            body = body.replace(/(\w+)\s*\+\s*'\/'/g, (m, v) => (v === "host" || v === "origin" ? `${v} + '${basePath}'` : m));
+            body = body.replace(/\$\{host\}\//g, `\${host}${basePath}`);
+          }
+          const rewritten = body;
           console.log("[preview] rewriting JS", { prefix, path: downstreamPath, length: body.length });
           res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "application/javascript");
           res.setHeader("Content-Length", Buffer.byteLength(rewritten, "utf8"));
