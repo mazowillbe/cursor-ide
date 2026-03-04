@@ -9,7 +9,6 @@ const TEXT = "#F0F0F0";
 const TEXT_MUTED = "#858585";
 const PROMPT_BLUE = "#569CD6";
 const COMMAND_WHITE = "#FFFFFF";
-const SPACE_LIGHT_PINK = "#E8B4B8";
 const OUTPUT_LIGHT_GREY = "#b0b0b0";
 
 export interface MiniTerminalProps {
@@ -121,7 +120,7 @@ const Spinner = () => (
 );
 
 /** Number of lines in prompt + output (command line counts as 1, then each \\n in output). */
-function countLines(fullCmd: string, output: string): number {
+function countLines(_fullCmd: string, output: string): number {
   const cmdLine = 1;
   const outputLines = output ? output.split(/\r?\n/).length : 0;
   return cmdLine + outputLines;
