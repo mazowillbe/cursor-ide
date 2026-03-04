@@ -89,11 +89,14 @@ async function main() {
         const isHtml = ct.includes("text/html");
         const isJs = ct.includes("javascript") || ct.includes("ecmascript");
 
-        if (isHtml && (downstreamPath === "/" || downstreamPath === "") && prefix) {
+        const isIndexRequest = downstreamPath === "/" || downstreamPath === "" || downstreamPath === "/index.html";
+        if (isHtml && isIndexRequest && prefix) {
           const html = await upstream.text();
+          // Rewrite src/href: capture full path so we prepend /api/preview/:workspaceId (e.g. /node_modules/.vite/... -> /api/preview/xxx/node_modules/.vite/...)
           const injected = html.replace(
-            /(src|href)=(["'])\/(?!\/)/g,
-            (_, attr: string, quote: string) => `${attr}=${quote}${prefix}/`
+            /(src|href)=(["'])(\/)(?!\/)([^"']*)["']/g,
+            (_: string, attr: string, quote: string, _slash: string, pathRest: string) =>
+              `${attr}=${quote}${prefix}/${pathRest}${quote}`
           );
           res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "text/html; charset=utf-8");
           res.send(injected);
