@@ -37,8 +37,9 @@ Backend and frontend are configured for Railway via `backend/railway.toml` and `
 ## 4. Point backend CORS at the frontend
 
 - In the **backend** service → **Variables** → set:
-  - `CORS_ORIGIN` = your Railway frontend URL (e.g. `https://cursor-web-frontend-production-xxx.up.railway.app`)
-- Redeploy the backend if needed.
+  - `CORS_ORIGIN` = **every URL that serves the frontend**, comma-separated (e.g. `https://cursor-web-frontend-production-xxx.up.railway.app,https://cursor-web-ide.onrender.com,http://localhost:5173`)
+- If the frontend is on Render (or another host), add that origin too. Otherwise requests (e.g. `/api/:workspaceId/files/sync`) will be blocked by CORS and you may see 503 or "No 'Access-Control-Allow-Origin' header".
+- Redeploy the backend after changing CORS_ORIGIN.
 
 ## 5. Deploy from CLI (optional)
 
@@ -57,5 +58,7 @@ RAILWAY_TOKEN=<project-token> railway up --service <service-name>
 ```
 
 ---
+
+**Preview HMR:** The app preview iframe may show "[vite] failed to connect to websocket" in the console. The preview still works; you just won’t get hot reload. Use the **Refresh** button on the preview to see changes. WebSocket proxying can fail on some hosting setups.
 
 **Security:** Do not commit `.env` or any file containing tokens. Rotate any token that was ever shared in chat or logs.
