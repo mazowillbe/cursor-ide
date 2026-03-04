@@ -437,12 +437,11 @@ function unescapeHtmlEntities(s: string): string {
 
 /** Escape HTML, extract command blocks as terminal placeholders, then apply tool-call/diff/markdown formatting. */
 function formatAssistantContent(content: string, isMobile?: boolean): FormattedAssistant {
-  // If content was saved as pre-rendered HTML (from Supabase load), use as-is so tool-call <details> render correctly
+  // If content was saved as pre-rendered HTML (from Supabase load), use as-is so tool-call <details> render correctly.
+  // We only need to detect that it already contains our tool-call markup; avoid relying on exact class attribute quoting.
   const normalized = typeof content === "string" ? content : "";
   const unescaped = unescapeHtmlEntities(normalized);
-  if (
-    (unescaped.includes("<details") && (unescaped.includes('class="tool-call"') || unescaped.includes("class='tool-call'")))
-  ) {
+  if (unescaped.includes("<details") && unescaped.includes("tool-call")) {
     return { html: unescaped, terminals: [] };
   }
   const escaped = escapeHtml(content);
