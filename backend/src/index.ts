@@ -64,9 +64,14 @@ async function main() {
       const url = `${targetUrl.replace(/\/$/, "")}${downstreamPath.startsWith("/") ? downstreamPath : `/${downstreamPath}`}${query}`;
 
       try {
-        const upstream = await fetch(url, {
-          headers: { host: new URL(targetUrl).host, ...(req.headers as Record<string, string>) },
-        });
+        const targetHost = new URL(targetUrl).host;
+        const forwardHeaders: Record<string, string> = {};
+        for (const [k, v] of Object.entries(req.headers)) {
+          if (v === undefined || k.toLowerCase() === "host") continue;
+          forwardHeaders[k] = Array.isArray(v) ? v[0]! : v;
+        }
+        forwardHeaders.host = targetHost;
+        const upstream = await fetch(url, { headers: forwardHeaders });
         if (!upstream.ok) {
           res.status(upstream.status).end();
           return;
@@ -88,9 +93,12 @@ async function main() {
 
         if (isJs && prefix) {
           const body = await upstream.text();
+          // Rewrite absolute paths in import/from so they go through the preview proxy.
+          // Avoid: "http:// (use (?!\/)); already-rewritten /api/preview/ (use (?!api\/preview\/)).
           const rewritten = body
-            .replace(/\("(\/)/g, `"${prefix}$1`)
-            .replace(/\('(\/)/g, `'${prefix}$1`);
+            .replace(/\("(\/(?!\/)(?!api\/preview\/))/g, `"${prefix}$1`)
+            .replace(/\('(\/(?!\/)(?!api\/preview\/))/g, `'${prefix}$1`)
+            .replace(/`(\/(?!\/)(?!api\/preview\/))/g, `\`${prefix}$1`);
           res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "application/javascript");
           res.setHeader("Content-Length", Buffer.byteLength(rewritten, "utf8"));
           res.send(rewritten);

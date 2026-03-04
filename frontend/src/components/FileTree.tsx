@@ -142,7 +142,6 @@ export default function FileTree({
       <div className="flex-1 overflow-y-auto p-2">
         {expanded.has(".") && (
           <TreeLevel
-            key={refreshKey}
             workspaceId={workspaceId}
             dir="."
             selectedPath={selectedPath}
