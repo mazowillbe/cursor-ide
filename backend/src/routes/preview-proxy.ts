@@ -31,9 +31,13 @@ export function getPreviewProxyRouter(
       res.status(404).json({ error: "No preview for this workspace" });
       return;
     }
-    // req.url is the path after mount; strip the /:workspaceId segment so proxy gets the downstream path
-    const origUrl = req.url ?? "/";
-    const downstreamPath = origUrl.replace(/^\/[^/]*/, "") || "/";
+    // Strip /api/preview/:workspaceId from path so proxy requests the correct path from Vite (e.g. /src/main.jsx).
+    // req.url may be full path or path-after-mount depending on Express; req.originalUrl is the full path.
+    const pathOnly = (req.originalUrl ?? req.url ?? "/").split("?")[0];
+    const prefix = `/api/preview/${workspaceId}`;
+    const downstreamPath = pathOnly === prefix || pathOnly.startsWith(prefix + "/")
+      ? pathOnly.slice(prefix.length) || "/"
+      : pathOnly.replace(/^\/[^/]*/, "") || "/";
     req.url = downstreamPath;
     (req as Request & { previewWorkspaceId?: string; previewDownstreamPath?: string }).previewWorkspaceId = workspaceId;
     (req as Request & { previewWorkspaceId?: string; previewDownstreamPath?: string }).previewDownstreamPath = downstreamPath;

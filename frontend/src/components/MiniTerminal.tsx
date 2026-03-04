@@ -8,6 +8,9 @@ const CARD_BORDER = "#2D2D30";
 const TEXT = "#F0F0F0";
 const TEXT_MUTED = "#858585";
 const PROMPT_BLUE = "#569CD6";
+const COMMAND_WHITE = "#FFFFFF";
+const SPACE_LIGHT_PINK = "#E8B4B8";
+const OUTPUT_LIGHT_GREY = "#b0b0b0";
 
 export interface MiniTerminalProps {
   /** "Running" | "Ran" */
@@ -146,7 +149,7 @@ export default function MiniTerminal({ label, cmdName: _cmdName, fullCmd, output
       const t = new Terminal({
         theme: {
           background: EXPLORER_BG,
-          foreground: TEXT,
+          foreground: OUTPUT_LIGHT_GREY,
           cursor: "transparent",
           black: EXPLORER_BG,
           red: "#f44747",
@@ -155,7 +158,7 @@ export default function MiniTerminal({ label, cmdName: _cmdName, fullCmd, output
           blue: PROMPT_BLUE,
           magenta: "#c586c0",
           cyan: "#4ec9b0",
-          white: TEXT,
+          white: COMMAND_WHITE,
         },
         fontSize: 12,
         fontFamily: "ui-monospace, 'Cascadia Code', Consolas, monospace",
@@ -183,7 +186,10 @@ export default function MiniTerminal({ label, cmdName: _cmdName, fullCmd, output
       };
       safeFit();
 
-      const prompt = "\x1b[34m$\x1b[0m " + fullCmd + "\r\n";
+      // $ = blue, space after $ = light pink, command = white; output uses theme.foreground (light grey)
+      const pink = "\x1b[38;2;232;180;184m";
+      const white = "\x1b[37m";
+      const prompt = "\x1b[34m$\x1b[0m" + pink + " \x1b[0m" + white + fullCmd + "\x1b[0m\r\n";
       t.write(prompt);
       if (output.length > 0) {
         t.write(output);
