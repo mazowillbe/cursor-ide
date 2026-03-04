@@ -100,6 +100,10 @@ html, body, #root,
   scrollbar-width: thin;
   scrollbar-color: #3c3c3c #1e1e1e;
 }
+/* Reserve space for scrollbar so .xterm-screen text doesn't draw over it */
+[data-mini-terminal] .xterm-screen {
+  margin-right: 8px;
+}
 [data-mini-terminal] .xterm-viewport::-webkit-scrollbar {
   width: 6px;
 }

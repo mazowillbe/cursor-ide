@@ -57,13 +57,25 @@ async function main() {
       const targetUrl = host.includes(":") ? `http://[${host}]:${target.port}` : `http://${host}:${target.port}`;
       const workspaceId = (req as express.Request & { previewWorkspaceId?: string }).previewWorkspaceId;
       const downstreamPath = (req as express.Request & { previewDownstreamPath?: string }).previewDownstreamPath ?? req.url ?? "/";
+      const prefix = workspaceId ? `/api/preview/${workspaceId}` : "";
+      const query = (req.originalUrl ?? req.url ?? "").includes("?")
+        ? "?" + (req.originalUrl ?? req.url).split("?")[1]
+        : "";
+      const url = `${targetUrl.replace(/\/$/, "")}${downstreamPath.startsWith("/") ? downstreamPath : `/${downstreamPath}`}${query}`;
 
-      // For the root document (index.html), rewrite origin-relative URLs (src="/...", href="/...") so they
-      // go through the preview path. <base> does not affect paths that start with "/" (they stay origin-relative).
-      if ((downstreamPath === "/" || downstreamPath === "") && workspaceId) {
-        const prefix = `/api/preview/${workspaceId}`;
-        try {
-          const upstream = await fetch(`${targetUrl.replace(/\/$/, "")}/`);
+      try {
+        const upstream = await fetch(url, {
+          headers: { host: new URL(targetUrl).host, ...(req.headers as Record<string, string>) },
+        });
+        if (!upstream.ok) {
+          res.status(upstream.status).end();
+          return;
+        }
+        const ct = (upstream.headers.get("content-type") ?? "").toLowerCase();
+        const isHtml = ct.includes("text/html");
+        const isJs = ct.includes("javascript") || ct.includes("ecmascript");
+
+        if (isHtml && (downstreamPath === "/" || downstreamPath === "") && prefix) {
           const html = await upstream.text();
           const injected = html.replace(
             /(src|href)=(["'])\/(?!\/)/g,
@@ -72,21 +84,35 @@ async function main() {
           res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "text/html; charset=utf-8");
           res.send(injected);
           return;
-        } catch (e) {
-          console.error("[preview] fetch index error:", (e as Error)?.message);
-          if (!res.headersSent) res.status(502).json({ error: "Preview proxy error", detail: (e as Error)?.message });
+        }
+
+        if (isJs && prefix) {
+          const body = await upstream.text();
+          const rewritten = body
+            .replace(/\("(\/)/g, `"${prefix}$1`)
+            .replace(/\('(\/)/g, `'${prefix}$1`);
+          res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "application/javascript");
+          res.setHeader("Content-Length", Buffer.byteLength(rewritten, "utf8"));
+          res.send(rewritten);
           return;
         }
-      }
 
-      httpProxyServer.web(req, res, { target: targetUrl, changeOrigin: true }, (err: Error | null) => {
-        if (err) {
-          console.error("[preview] proxy web error:", err?.message, "target:", targetUrl);
-          if (!res.headersSent) {
-            res.status(502).json({ error: "Preview proxy error", detail: err?.message });
-          }
+        if (ct.includes("text/css") && prefix) {
+          const body = await upstream.text();
+          const rewritten = body.replace(/url\((["']?)(\/)(?!\/)/g, `url($1${prefix}$2`);
+          res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "text/css");
+          res.setHeader("Content-Length", Buffer.byteLength(rewritten, "utf8"));
+          res.send(rewritten);
+          return;
         }
-      });
+
+        res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "application/octet-stream");
+        const buf = await upstream.arrayBuffer();
+        res.end(Buffer.from(buf));
+      } catch (e) {
+        console.error("[preview] fetch error:", (e as Error)?.message, "url:", url);
+        if (!res.headersSent) res.status(502).json({ error: "Preview proxy error", detail: (e as Error)?.message });
+      }
     })
   );
 

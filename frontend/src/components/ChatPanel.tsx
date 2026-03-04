@@ -426,8 +426,25 @@ function parseContentWithEditBlocks(
   return segments.length ? segments : [{ type: "text", content }];
 }
 
+/** Unescape common HTML entities (for content that was saved already escaped). */
+function unescapeHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"');
+}
+
 /** Escape HTML, extract command blocks as terminal placeholders, then apply tool-call/diff/markdown formatting. */
 function formatAssistantContent(content: string, isMobile?: boolean): FormattedAssistant {
+  // If content was saved as pre-rendered HTML (from Supabase load), use as-is so tool-call <details> render correctly
+  const normalized = typeof content === "string" ? content : "";
+  const unescaped = unescapeHtmlEntities(normalized);
+  if (
+    (unescaped.includes("<details") && (unescaped.includes('class="tool-call"') || unescaped.includes("class='tool-call'")))
+  ) {
+    return { html: unescaped, terminals: [] };
+  }
   const escaped = escapeHtml(content);
   const { content: withPlaceholders, terminals } = extractTerminalsAndPlaceholders(escaped);
   const withEdit = formatEditInContent(withPlaceholders);
