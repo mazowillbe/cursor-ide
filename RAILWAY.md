@@ -20,7 +20,7 @@ Backend and frontend are configured for Railway via `backend/railway.toml` and `
   - `OPENCODE_ZEN_API_KEY` or `GEMINI_API_KEY`
   - `USE_SUPABASE_FILES` = `true`
   - `NODE_OPTIONS` = `--max-old-space-size=896`
-  - `CORS_ORIGIN` = your frontend URL (e.g. `https://xxx.up.railway.app`) and optionally `http://localhost:5173`
+  - `CORS_ORIGIN` = your frontend URL(s), comma-separated — include `http://localhost:5173` when testing with a local frontend (e.g. `https://your-app.onrender.com,http://localhost:5173`)
 - **Memory:** The agent spawns `opencode-ai`, which can use several hundred MB. If you see **exit code 137** or "Killed" in logs, the container ran out of RAM. Give the backend service **at least 1.5–2 GB** in Railway (Settings → Resources) for reliable agent runs.
 - Deploy. Copy the backend URL (e.g. `https://cursor-web-backend-production-xxx.up.railway.app`).
 

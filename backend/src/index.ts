@@ -137,6 +137,14 @@ async function main() {
 
         if (isJs && prefix) {
           let body = await upstream.text();
+          // Don't rewrite Vite pre-bundled deps (e.g. react/jsx-runtime) — rewriting can break exports and cause "does not provide an export named 'jsx'".
+          const isViteDep = downstreamPath.startsWith("/node_modules/.vite/deps/");
+          if (isViteDep) {
+            res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "application/javascript");
+            res.setHeader("Content-Length", Buffer.byteLength(body, "utf8"));
+            res.send(body);
+            return;
+          }
           // Rewrite absolute path strings that look like URLs (contain @ or .). Skip regex-looking and bare "/" in @vite/client.
           const isViteClient = downstreamPath === "/@vite/client";
           const rewritePath = (path: string) => {
