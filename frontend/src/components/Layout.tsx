@@ -15,6 +15,11 @@ import TerminalPanel, { type CursorSession } from "./TerminalPanel";
 import FileMenu from "./FileMenu";
 import StatusBar from "./StatusBar";
 
+/** Max retries for iframe load before showing error state */
+const MAX_PREVIEW_RETRIES = 3;
+/** Delay between retry attempts (ms) */
+const PREVIEW_RETRY_DELAY = 2000;
+
 interface LayoutProps {
   workspaceId: string;
   projectName?: string;
@@ -47,6 +52,8 @@ export default function Layout({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewPort, setPreviewPort] = useState<number | null>(null);
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
+  const [previewLoadError, setPreviewLoadError] = useState(false);
+  const [previewRetryCount, setPreviewRetryCount] = useState(0);
   const [centerView, setCenterView] = useState<"editor" | "preview">("editor");
   const [isMobile, setIsMobile] = useState(false);
   const [cursorSessions, setCursorSessions] = useState<CursorSession[]>([]);
@@ -60,10 +67,13 @@ export default function Layout({
   const handlePreviewReady = useCallback((url: string, port?: number) => {
     setPreviewUrl(url);
     setPreviewPort(port ?? null);
+    setPreviewLoadError(false);
+    setPreviewRetryCount(0);
     setCenterView("preview");
   }, []);
   const handlePreviewRefresh = useCallback(() => {
     // Reload the iframe content directly — avoids remounting (no white flash / full reload of the parent component)
+    setPreviewLoadError(false);
     const iframeWin = previewIframeRef.current?.contentWindow;
     if (iframeWin) {
       try { iframeWin.location.reload(); } catch { setPreviewRefreshKey((k) => k + 1); }
@@ -75,6 +85,8 @@ export default function Layout({
   useEffect(() => {
     setPreviewUrl(null);
     setPreviewPort(null);
+    setPreviewLoadError(false);
+    setPreviewRetryCount(0);
   }, [workspaceId]);
 
   useEffect(() => {
@@ -94,6 +106,8 @@ export default function Layout({
         if (status) {
           setPreviewUrl(getPreviewIframeUrl(workspaceId, status.url));
           setPreviewPort(status.port);
+          setPreviewLoadError(false);
+          setPreviewRetryCount(0);
         }
       });
     };
@@ -101,6 +115,26 @@ export default function Layout({
     const id = setInterval(tryLoad, 2500);
     return () => clearInterval(id);
   }, [centerView, workspaceId, previewUrl]);
+
+  // Handle iframe load errors with automatic retry
+  const handlePreviewError = useCallback(() => {
+    if (previewRetryCount < MAX_PREVIEW_RETRIES) {
+      setPreviewLoadError(true);
+      setTimeout(() => {
+        setPreviewRetryCount((c) => c + 1);
+        setPreviewRefreshKey((k) => k + 1);
+        setPreviewLoadError(false);
+      }, PREVIEW_RETRY_DELAY);
+    } else {
+      setPreviewLoadError(true);
+    }
+  }, [previewRetryCount]);
+
+  const retryPreview = useCallback(() => {
+    setPreviewRetryCount(0);
+    setPreviewRefreshKey((k) => k + 1);
+    setPreviewLoadError(false);
+  }, []);
 
   const handleSidebarCollapse = useCallback(() => {
     sidebarPanelRef.current?.collapse();
@@ -243,14 +277,28 @@ export default function Layout({
                       </a>
                     </div>
                     <div className="flex-1 min-h-0">
-                      <iframe
-                        key={`${previewUrl}-${previewPort ?? ""}-${previewRefreshKey}`}
-                        ref={previewIframeRef}
-                        src={previewUrl}
-                        title="App preview"
-                        className="w-full h-full border-0 bg-white"
-                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                      />
+                      {previewLoadError && previewRetryCount >= MAX_PREVIEW_RETRIES ? (
+                        <div className="w-full h-full flex flex-col items-center justify-center bg-surface-900 text-gray-400">
+                          <p className="mb-4 text-sm">Failed to load preview after {MAX_PREVIEW_RETRIES} attempts.</p>
+                          <button
+                            type="button"
+                            onClick={retryPreview}
+                            className="px-4 py-2 rounded bg-surface-600 text-white hover:bg-surface-500 text-sm"
+                          >
+                            Try Again
+                          </button>
+                        </div>
+                      ) : (
+                        <iframe
+                          key={`${previewUrl}-${previewPort ?? ""}-${previewRefreshKey}`}
+                          ref={previewIframeRef}
+                          src={previewUrl}
+                          title="App preview"
+                          className="w-full h-full border-0 bg-white"
+                          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                          onError={handlePreviewError}
+                        />
+                      )}
                     </div>
                   </>
                 ) : (
@@ -468,14 +516,28 @@ export default function Layout({
                           </a>
                         </div>
                         <div className="flex-1 min-h-0">
-                          <iframe
-                            key={`${previewUrl}-${previewPort ?? ""}-${previewRefreshKey}`}
-                            ref={previewIframeRef}
-                            src={previewUrl}
-                            title="App preview"
-                            className="w-full h-full border-0 bg-white"
-                            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                          />
+                          {previewLoadError && previewRetryCount >= MAX_PREVIEW_RETRIES ? (
+                            <div className="w-full h-full flex flex-col items-center justify-center bg-surface-900 text-gray-400">
+                              <p className="mb-4 text-sm">Failed to load preview after {MAX_PREVIEW_RETRIES} attempts.</p>
+                              <button
+                                type="button"
+                                onClick={retryPreview}
+                                className="px-4 py-2 rounded bg-surface-600 text-white hover:bg-surface-500 text-sm"
+                              >
+                                Try Again
+                              </button>
+                            </div>
+                          ) : (
+                            <iframe
+                              key={`${previewUrl}-${previewPort ?? ""}-${previewRefreshKey}`}
+                              ref={previewIframeRef}
+                              src={previewUrl}
+                              title="App preview"
+                              className="w-full h-full border-0 bg-white"
+                              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                              onError={handlePreviewError}
+                            />
+                          )}
                         </div>
                       </>
                     ) : (

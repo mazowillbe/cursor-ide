@@ -10,7 +10,7 @@ import type { ToolCall } from "./types/tools.js";
 import { config } from "./config.js";
 import { getCustomToolNamesSync } from "./agent-config.js";
 import { stripCodeFences } from "./apply-edit-agent.js";
-import { detectAndRegister, waitForPortReachable, setPreviewHost } from "./preview-manager.js";
+import { detectAndRegister, waitForServerReady, setPreviewHost } from "./preview-manager.js";
 import { detectRebuildFromOutput } from "./dev-server-manager.js";
 
 /** Custom tool names from tools.json — only these are executed (via OpenCode stubs + execute-tool API). */
@@ -805,7 +805,7 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                       // Detect dev server port from agent narrative (e.g. "Dev server running at http://localhost:5174/")
                       const port = detectAndRegister(workspaceId, narrativeClean);
                       if (port != null) {
-                        waitForPortReachable(port, 15000).then((host) => {
+                        waitForServerReady(port, 15000).then((host) => {
                           if (host) setPreviewHost(workspaceId, host);
                           if (ws.readyState === ws.OPEN) {
                             ws.send(JSON.stringify({ type: "preview_ready", workspaceId, port, url: `http://localhost:${port}` }));
@@ -1207,7 +1207,7 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                             if (tool === "bash" && contentForPayload) {
                               const port = detectAndRegister(workspaceId, String(contentForPayload));
                               if (port != null && ws.readyState === ws.OPEN) {
-                                waitForPortReachable(port, 15000).then((host) => {
+                                waitForServerReady(port, 15000).then((host) => {
                                   if (host) setPreviewHost(workspaceId, host);
                                   if (ws.readyState === ws.OPEN) {
                                     ws.send(JSON.stringify({ type: "preview_ready", workspaceId, port, url: `http://localhost:${port}` }));
@@ -1228,7 +1228,7 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                                   ws.send(JSON.stringify({ type: "tool_output_stream", callId, chunk: chunkStr }));
                                   const port = detectAndRegister(workspaceId, chunkStr);
                                   if (port != null) {
-                                    waitForPortReachable(port, 15000).then((host) => {
+                                    waitForServerReady(port, 15000).then((host) => {
                                       if (host) setPreviewHost(workspaceId, host);
                                       if (ws.readyState === ws.OPEN) {
                                         ws.send(JSON.stringify({ type: "preview_ready", workspaceId, port, url: `http://localhost:${port}` }));
@@ -1252,7 +1252,7 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
                                 if (r.tool === "run_terminal_cmd" && r.success && r.output) {
                                   const port = detectAndRegister(workspaceId, r.output);
                                   if (port != null && ws.readyState === ws.OPEN) {
-                                    waitForPortReachable(port, 15000).then((host) => {
+                                    waitForServerReady(port, 15000).then((host) => {
                                       if (host) setPreviewHost(workspaceId, host);
                                       if (ws.readyState === ws.OPEN) {
                                         ws.send(JSON.stringify({ type: "preview_ready", workspaceId, port, url: `http://localhost:${port}` }));
