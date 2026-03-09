@@ -9,7 +9,7 @@
 import { spawn } from "child_process";
 import fs from "fs/promises";
 import type { WebSocket } from "ws";
-import { getWorkspacePath } from "./workspace.js";
+import { findProjectRoot } from "./workspace.js";
 import { detectAndRegister, waitForPortReachable, setPreviewHost } from "./preview-manager.js";
 
 export const TERMINAL_WS_PATH = "/api/terminal";
@@ -133,7 +133,7 @@ export function attachTerminalWebSocket(
 
     let proc: ProcHandle | null = null;
     try {
-      const cwd = getWorkspacePath(workspaceId);
+      const cwd = findProjectRoot(workspaceId);
       await fs.mkdir(cwd, { recursive: true });
       console.log("[terminal-ws] Connecting workspace:", workspaceId, "cwd:", cwd);
 

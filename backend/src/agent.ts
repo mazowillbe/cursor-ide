@@ -4,7 +4,7 @@ import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import { spawn, type ChildProcess } from "child_process";
-import { getWorkspacePath, createWorkspaceWithId } from "./workspace.js";
+import { createWorkspaceWithId, findProjectRoot } from "./workspace.js";
 import { getHardcodedAgentConfig } from "./agent-config.js";
 import { createServerClient } from "./lib/supabase/server.js";
 
@@ -58,7 +58,7 @@ export async function runOpenCode(
   chatSessionId?: string
 ): Promise<ProcessHandle> {
   await createWorkspaceWithId(workspaceId);
-  const cwd = path.resolve(getWorkspacePath(workspaceId));
+  const cwd = findProjectRoot(workspaceId);
   let projectName: string | undefined;
   try {
     const supabase = createServerClient();

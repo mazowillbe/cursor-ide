@@ -10,7 +10,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { spawn } from "child_process";
 import { config } from "./config.js";
-import { getWorkspacePath, createWorkspaceWithId } from "./workspace.js";
+import { createWorkspaceWithId, findProjectRoot } from "./workspace.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const opencodeConfigDir = path.resolve(__dirname, "..", "opencode-config");
@@ -161,6 +161,6 @@ export async function runOpenCodeInWorkspace(
   options: Omit<OpenCodeRunOptions, "cwd"> = {}
 ): Promise<string> {
   await createWorkspaceWithId(workspaceId);
-  const cwd = getWorkspacePath(workspaceId);
+  const cwd = findProjectRoot(workspaceId);
   return runOpenCodeAndGetText(prompt, { ...options, cwd });
 }
