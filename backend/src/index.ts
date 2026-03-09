@@ -5,8 +5,9 @@ import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import httpProxy from "http-proxy";
 import { config } from "./config.js";
-import { ensureWorkspaceRoot } from "./workspace.js";
+import { ensureWorkspaceRoot, pruneOldWorkspaces } from "./workspace.js";
 import { getPort, getPreviewTarget } from "./preview-manager.js";
+import { getActiveWorkspaceIds, addSessionMessageListener } from "./websocket.js";
 import filesRouter from "./routes/files.js";
 import sessionsRouter from "./routes/sessions.js";
 import projectsRouter from "./routes/projects.js";
@@ -28,6 +29,15 @@ const PREVIEW_PREFIX = "/api/preview/";
 async function main() {
   await ensureWorkspaceRoot();
 
+  const runPrune = async () => {
+    const active = getActiveWorkspaceIds();
+    const n = await pruneOldWorkspaces(active);
+    if (n > 0) console.log("[workspace] auto-cleanup pruned", n, "old workspace(s)");
+  };
+  await runPrune();
+  const PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+  setInterval(runPrune, PRUNE_INTERVAL_MS);
+
   const app = express();
   app.set("trust proxy", 1);
   const corsOpts = config.corsOrigin
@@ -47,6 +57,29 @@ async function main() {
   app.use("/api", lintsRouter);
   app.use("/api", executeToolRouter);
   app.use("/api", describeImageRouter);
+
+  // Live SSE streaming: same agent events as WebSocket, for clients that prefer EventSource
+  app.get("/api/agent/sse", (req: express.Request, res: express.Response) => {
+    const workspaceId = typeof req.query.workspaceId === "string" ? req.query.workspaceId.trim() : "";
+    const chatSessionId = typeof req.query.chatSessionId === "string" ? req.query.chatSessionId.trim() : undefined;
+    if (!workspaceId) {
+      res.status(400).send("Missing workspaceId");
+      return;
+    }
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+    const resWithFlush = res as express.Response & { flush?: () => void };
+    const unsubscribe = addSessionMessageListener((wid, cid, data) => {
+      if (wid !== workspaceId || (chatSessionId != null && cid !== chatSessionId)) return;
+      try {
+        res.write(`data: ${data}\n\n`);
+        resWithFlush.flush?.();
+      } catch (_) { /* client may have disconnected */ }
+    });
+    req.on("close", () => unsubscribe());
+  });
 
   // Preview iframe may request /@react-refresh, /@vite/client etc. with origin-relative URLs; redirect to prefixed path using Referer.
   app.get("/@*", (req: express.Request, res: express.Response) => {
@@ -237,7 +270,13 @@ async function main() {
             downstreamPath === "/src/index.js" ||
             downstreamPath === "/src/index.tsx" ||
             downstreamPath === "/src/index.ts";
-          const hasReactImport = /from\s*["']react["']|from\s*["']react\/jsx-runtime["']/.test(body);
+          // Match any existing React import (including path aliases, * as React, etc.) to avoid duplicate declaration
+          const hasReactImport =
+            /import\s+(?:\*\s+as\s+)?React\s+from\s+["']/.test(body) ||
+            /from\s*["']react["']/.test(body) ||
+            /from\s*["']react\/jsx-runtime["']/.test(body) ||
+            body.includes("import React from 'https://esm.sh/react'") ||
+            body.includes('import React from "https://esm.sh/react"');
           if (isAppEntry && !hasReactImport) {
             const preambleMatch = body.match(/^(\s*import\s+RefreshRuntime\s+from\s+["']\/@react-refresh["'][^;]*;\s*\n?)/);
             if (preambleMatch) {

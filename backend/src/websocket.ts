@@ -645,6 +645,26 @@ export function getSessionSocket(workspaceId: string, chatSessionId: string | un
   return sessionSockets.get(key);
 }
 
+/** Workspace IDs that currently have an active agent WebSocket (for pruneOldWorkspaces). */
+export function getActiveWorkspaceIds(): Set<string> {
+  const ids = new Set<string>();
+  for (const key of sessionSockets.keys()) {
+    const wid = key.split(":")[0];
+    if (wid) ids.add(wid);
+  }
+  return ids;
+}
+
+/** Listeners for live SSE streaming: (workspaceId, chatSessionId, rawJsonString). */
+const sessionMessageListeners: Array<(workspaceId: string, chatSessionId: string | undefined, data: string) => void> = [];
+export function addSessionMessageListener(fn: (workspaceId: string, chatSessionId: string | undefined, data: string) => void): () => void {
+  sessionMessageListeners.push(fn);
+  return () => {
+    const i = sessionMessageListeners.indexOf(fn);
+    if (i !== -1) sessionMessageListeners.splice(i, 1);
+  };
+}
+
 export function attachAgentWebSocket(wss: WebSocketServer): void {
   wss.on("connection", (ws: WebSocket) => {
     ws.on("message", async (raw: Buffer) => {
@@ -699,6 +719,11 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
           const debugThinking = process.env.DEBUG_THINKING === "1";
           console.log("[agent] run requested, workspace:", workspaceId, "continuing:", !!opencodeSessionId, "message length:", messageToSend.length, "thinking model:", showThinking);
           registerSessionSocket(workspaceId, chatSessionId, ws);
+          const origSend = ws.send.bind(ws);
+          (ws as WebSocket & { send: (data: string) => void }).send = (data: string) => {
+            origSend(data);
+            for (const fn of sessionMessageListeners) try { fn(workspaceId, chatSessionId, data); } catch (_) { /* ignore */ }
+          };
           let noResponseTimer: ReturnType<typeof setTimeout> | null = null;
           try {
             let chunkCount = 0;

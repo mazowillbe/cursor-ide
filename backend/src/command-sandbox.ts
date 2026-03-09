@@ -69,6 +69,19 @@ function hasBlockedPattern(command: string): boolean {
   return BLOCKED_PATTERNS.some((p) => p.test(command));
 }
 
+/** Common dir/file names the AI sometimes wrongly passes as commands. */
+const BARE_PATH_PATTERN = /^[\w./\\-]+\.(jsx?|tsx?|css|html|json|md|txt)$|^(src|public|components|app|lib|pages)$/i;
+
+/**
+ * Detect commands that look like bare file/dir paths (e.g. "src", "Landing.jsx", "main.jsx").
+ * The AI sometimes confuses these with shell commands. Use list_dir/read_file instead.
+ */
+export function looksLikeBarePath(command: string): boolean {
+  const t = command.trim();
+  if (!t || t.includes(" ")) return false;
+  return BARE_PATH_PATTERN.test(t);
+}
+
 /**
  * Command allowlist: only these executables may be run.
  * Returns true if every segment's first token is allowed (including "cd" when path is safe).

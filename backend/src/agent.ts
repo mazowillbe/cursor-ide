@@ -125,6 +125,15 @@ export async function runOpenCode(
     lastOutput += data;
     if (lastOutput.length > MAX_BUFFER) lastOutput = lastOutput.slice(-MAX_BUFFER);
   };
+  /** Log subprocess output to console for Docker/debugging (truncated to avoid flood). */
+  const logSubprocessOutput = (stream: "stdout" | "stderr", data: string) => {
+    if (!data || typeof data !== "string") return;
+    const trimmed = data.trim();
+    if (!trimmed) return;
+    const preview = trimmed.length > 500 ? trimmed.slice(0, 500) + "…" : trimmed;
+    const oneLine = preview.replace(/\r?\n/g, " ").slice(0, 400);
+    console.log(`[agent] opencode ${stream}:`, oneLine);
+  };
   const wrappedOnData = (chunk: string) => {
     pushOutput(chunk);
     callbacks.onData(chunk);
@@ -160,7 +169,10 @@ export async function runOpenCode(
       }
       const ptyProcess = pty.spawn(shell, args, ptyOpts);
 
-      ptyProcess.onData((data: string) => wrappedOnData(data));
+      ptyProcess.onData((data: string) => {
+        logSubprocessOutput("stdout", data);
+        wrappedOnData(data);
+      });
       ptyProcess.onExit(({ exitCode }: { exitCode: number }) => wrappedOnEnd(exitCode));
 
       return {
@@ -200,8 +212,14 @@ export async function runOpenCode(
 
     child.stdout?.setEncoding("utf8");
     child.stderr?.setEncoding("utf8");
-    child.stdout?.on("data", (data: string) => wrappedOnData(data));
-    child.stderr?.on("data", (data: string) => wrappedOnData(data));
+    child.stdout?.on("data", (data: string) => {
+      logSubprocessOutput("stdout", data);
+      wrappedOnData(data);
+    });
+    child.stderr?.on("data", (data: string) => {
+      logSubprocessOutput("stderr", data);
+      wrappedOnData(data);
+    });
     child.on("error", (err: NodeJS.ErrnoException) => {
       const msg =
         err.code === "ENOENT"

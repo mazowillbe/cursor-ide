@@ -2,6 +2,12 @@
 
 Backend and frontend are configured for Railway via `backend/railway.toml` and `frontend/railway.toml`.
 
+## Troubleshooting: Exit 137 / "Killed"
+
+If you see `[agent] OpenCode process ended, code: 137` or `Killed` in logs, the container ran out of memory (OOM).
+
+**Fix:** In Railway → Backend service → **Settings → Resources**, give the backend **at least 1.5–2 GB** memory. The free tier often has 512MB, which is not enough for OpenCode + Node. Set `NODE_OPTIONS=--max-old-space-size=896` to cap Node's heap and leave room for the rest.
+
 ## 1. Create a Railway project
 
 1. Go to [railway.app](https://railway.app) and sign in.

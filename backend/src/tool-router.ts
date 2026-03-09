@@ -20,6 +20,7 @@ import { config } from "./config.js";
 import {
   isCommandAllowed,
   isCommandAttemptingEscape,
+  looksLikeBarePath,
   DEFAULT_COMMAND_TIMEOUT_MS,
 } from "./command-sandbox.js";
 import {
@@ -34,8 +35,12 @@ import { applyEditWithModel, stripCodeFences } from "./apply-edit-agent.js";
 import { getLastEdit, setLastEdit } from "./last-edit-store.js";
 import { startEdit, endEdit, waitForEditComplete } from "./file-edit-lock.js";
 import type { ToolCall, ToolResult, ExecuteToolOptions, BatchToolResult } from "./types/tools.js";
+import { createTwoFilesPatch } from "diff";
 
 const LOG_PREFIX = "[tool-router]";
+
+/** When file content exceeds this size, send unified diff instead of full content to reduce SSE/WS payload. */
+const DIFF_PAYLOAD_THRESHOLD = 8 * 1024;
 
 /** Normalize stream/API tool name to our canonical handler name. */
 function normalizeToolName(raw: string): string {
@@ -295,6 +300,16 @@ export async function executeTool(
         return { callId, tool: rawTool, success: false, error: "Missing command" };
       }
       const cmdTrimmed = command.trim();
+      if (looksLikeBarePath(cmdTrimmed)) {
+        log("run_terminal_cmd: command looks like bare path");
+        return {
+          callId,
+          tool: rawTool,
+          success: false,
+          error:
+            "That looks like a file or directory path, not a shell command. Use list_dir to list directories and read_file to read files. run_terminal_cmd requires full commands (e.g. 'npm run dev', 'ls src').",
+        };
+      }
       if (isBlockedKillAllCommand(cmdTrimmed)) {
         log("run_terminal_cmd: blocked kill-all command");
         return {
@@ -552,10 +567,15 @@ export async function executeTool(
         });
         const toWrite = stripCodeFences(applied);
         const MAX_EDIT_OUTPUT_CHARS = 120_000;
-        const outputContent =
-          toWrite.length <= MAX_EDIT_OUTPUT_CHARS
-            ? toWrite
-            : toWrite.slice(0, MAX_EDIT_OUTPUT_CHARS) + "\n\n… (truncated for display)";
+        let outputContent: string;
+        if (toWrite.length > DIFF_PAYLOAD_THRESHOLD) {
+          outputContent = createTwoFilesPatch(pathTrimmed, pathTrimmed, currentContent, toWrite);
+        } else {
+          outputContent =
+            toWrite.length <= MAX_EDIT_OUTPUT_CHARS
+              ? toWrite
+              : toWrite.slice(0, MAX_EDIT_OUTPUT_CHARS) + "\n\n… (truncated for display)";
+        }
         await writeFile(workspaceId, pathTrimmed, toWrite);
         if (options?.onStream && outputContent) {
           const lines = outputContent.split(/\n/);
@@ -607,10 +627,15 @@ export async function executeTool(
         const updated =
           content.slice(0, first) + newStr + content.slice(first + oldStr.length);
         const MAX_EDIT_OUTPUT_CHARS = 120_000;
-        const outputContent =
-          updated.length <= MAX_EDIT_OUTPUT_CHARS
-            ? updated
-            : updated.slice(0, MAX_EDIT_OUTPUT_CHARS) + "\n\n… (truncated for display)";
+        let outputContent: string;
+        if (updated.length > DIFF_PAYLOAD_THRESHOLD) {
+          outputContent = createTwoFilesPatch(pathTrimmed, pathTrimmed, content, updated);
+        } else {
+          outputContent =
+            updated.length <= MAX_EDIT_OUTPUT_CHARS
+              ? updated
+              : updated.slice(0, MAX_EDIT_OUTPUT_CHARS) + "\n\n… (truncated for display)";
+        }
         await writeFile(workspaceId, pathTrimmed, updated);
         if (options?.onStream && outputContent) {
           const lines = outputContent.split(/\n/);

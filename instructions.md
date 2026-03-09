@@ -1,102 +1,223 @@
-Build a production-ready web application that looks and behaves like Cursor AI editor, but uses an OpenCode AI agent as the backend coding engine.
+You are an expert full-stack engineer specializing in AI-powered code generation platforms.
 
-GOAL:
-Create a browser-based AI coding IDE where users can chat with an AI agent, edit code, run commands, and generate full applications.
+Build a **full AI app generator** that streams OpenCode CLI output from ephemeral Docker sandboxes to a frontend with WebContainer preview. Include **diff streaming, snapshot cloning, resource limits, multi-user isolation, and auto-cleanup**.
 
-CORE FEATURES:
+---
 
-1. Cursor-style UI layout:
-- Left panel: AI chat / agent interaction
-- Center: Monaco code editor (VS Code-like)
-- Right panel: file tree explorer
-- Bottom panel: terminal output
-- Resizable panels
-- Clean modern UI similar to Cursor
+## SYSTEM ARCHITECTURE
 
-2. AI Agent Integration:
-- Backend executes OpenCode CLI
-- User prompt → backend → OpenCode → stream output
-- AI can create/edit files
-- AI can run shell commands
-- AI can generate full projects
-- AI can fix errors automatically
-- Stream agent output in real time
+User prompt
+↓
+Frontend UI (React + Vite + Tailwind + ShadCN)
+↓
+Backend API (Node.js + Express)
+↓
+Persistent Docker sandbox pool (Ubuntu + OpenCode CLI)
+↓
+Ephemeral sandbox clone per request
+↓
+OpenCode CLI generates project inside sandbox
+↓
+Backend detects filesystem changes
+↓
+Backend streams git-style diffs + logs via SSE
+↓
+Frontend receives events
+↓
+WebContainer applies files/patches
+↓
+Vite dev server preview updates live
 
-3. File System Management:
-- Create / edit / delete files
-- Folder structure view
-- Live file updates
-- Project workspace per session
-- File watcher to sync changes
+---
 
-4. Terminal:
-- Browser terminal using xterm.js
-- Command execution in workspace
-- Show logs and errors
-
-5. Backend Agent Controller:
-- Node.js server
-- Uses child_process to run OpenCode
-- WebSocket streaming of agent output
-- Workspace isolation per user
-- REST + WebSocket API
-
-6. Project Generation Workflow:
-- User enters app idea
-- AI plans architecture
-- AI creates files
-- AI installs dependencies
-- AI runs project
-- AI fixes errors automatically
-
-7. Autonomous Agent Mode:
-- Agent creates step-by-step plan
-- Executes tasks continuously
-- Fixes errors without asking
-- Continues until goal complete
-
-TECH STACK:
+## TECH STACK
 
 Frontend:
-- React
-- Vite
-- TypeScript
-- Tailwind CSS
-- Monaco Editor
-- xterm.js
-- WebSocket client
+
+* React, Vite, TypeScript
+* Tailwind CSS
+* ShadCN UI
+* WebContainer for live preview
 
 Backend:
-- Node.js
-- Express
-- WebSocket server
-- OpenCode CLI integration
 
-UI REQUIREMENTS:
-- Modern minimal design
-- Dark theme
-- Responsive layout
-- Smooth panel resizing
-- Loading states
-- Streaming responses
+* Node.js + Express
+* Docker control via child_process
 
-ARCHITECTURE:
-- Frontend communicates with backend agent server
-- Backend controls OpenCode process
-- Workspace stored on server
-- Real-time streaming of AI output
+Container:
 
-DELIVERABLES:
-- Complete project structure
-- Backend and frontend code
-- Clear folder organization
-- Working MVP implementation
-- Setup instructions
-- Example agent workflow
+* Ubuntu 22.04
+* OpenCode CLI installed
+* Ephemeral containers with CPU/memory limits
+* Snapshot cloning to reduce startup time
+* Auto-cleanup after 60–120 seconds
+* Multi-user isolation (`/tmp/sandbox/<user-id>`)
 
-EXTRA:
-- Design for scalability
-- Clean architecture
-- Modular components
-- Error handling
-- Production-ready patterns
+Streaming:
+
+* Server-Sent Events (SSE)
+* Incremental diff streaming using unified git-style patches
+
+---
+
+## DOCKER IMAGE
+
+Dockerfile example:
+
+```dockerfile
+FROM ubuntu:22.04
+
+# Dependencies
+RUN apt-get update && apt-get install -y curl git nodejs npm
+
+# OpenCode CLI
+RUN npm install -g opencode-cli
+
+WORKDIR /workspace
+```
+
+* Persistent sandbox pool: keeps base Docker image ready to clone ephemeral containers quickly.
+* Ephemeral sandbox per request: `docker run --rm --cpus=1 --memory=512m -v /tmp/sandbox/<user-id>/<id>:/workspace sandbox-base opencode generate "<prompt>"`
+* Containers auto-terminate after 60–120 seconds.
+* Each user has isolated `/tmp/sandbox/<user-id>` directories.
+
+---
+
+## BACKEND API
+
+POST `/api/generate`
+
+1. Receive user prompt and user ID.
+2. Create unique ephemeral sandbox via snapshot clone.
+3. Spawn Docker container with:
+
+   * CPU/memory limits
+   * Volume mapping to `/tmp/sandbox/<user-id>/<id>`
+4. Run `opencode generate "<prompt>"` inside container.
+5. Detect filesystem changes:
+
+   * Compute diffs only for changed files.
+6. Stream events to frontend using SSE:
+
+   * `text`, `log`, `file`, `diff`, `command`, `done`, `error`
+
+Example event:
+
+```json
+{
+  "type": "diff",
+  "path": "src/App.tsx",
+  "patch": "@@ -1,3 +1,4 @@\n+import React from 'react';\n const App = () => <h1>Hello</h1>;"
+}
+```
+
+* Auto-cleanup: terminate container after generation or timeout.
+
+---
+
+## FRONTEND
+
+Layout:
+
+```
+--------------------------------
+| Chat Panel | Preview Panel |
+--------------------------------
+```
+
+* Chat panel:
+
+  * Prompt input
+  * Streaming generation log
+  * Progress updates
+* Preview panel:
+
+  * WebContainer iframe with live Vite server
+
+Event handling:
+
+```ts
+switch(event.type) {
+  case "file": await webcontainer.fs.writeFile(event.path, event.content); break;
+  case "diff":
+    const oldFile = await webcontainer.fs.readFile(event.path);
+    const newFile = applyPatch(oldFile, event.patch);
+    await webcontainer.fs.writeFile(event.path, newFile);
+    break;
+  case "command": await webcontainer.spawn(event.command); break;
+  case "text":
+  case "log": console.log(event.content); break;
+  case "done": reload preview; break;
+  case "error": console.error(event.content); break;
+}
+```
+
+* `applyPatch` comes from a JS diff library.
+
+---
+
+## WEBCONTAINER + VITE
+
+* Initialize WebContainer.
+* Apply file/diff events in real-time.
+* Spawn Vite dev server inside WebContainer.
+* Display preview iframe URL live.
+
+---
+
+## SECURITY & RESOURCE MANAGEMENT
+
+* CPU/memory limits: `docker run --cpus=1 --memory=512m`
+* Auto-termination after 60–120 seconds
+* Isolate each user: `/tmp/sandbox/<user-id>/<id>`
+* Snapshot cloning: reduce container startup time
+* Diff optimization: compute only changed files to reduce SSE payload
+
+---
+
+## PROJECT STRUCTURE
+
+```
+root
+  /client
+    src/
+  /server
+    index.ts
+  /docker
+    Dockerfile
+  /sandboxes
+```
+
+---
+
+## OUTPUT REQUIREMENTS
+
+Generate:
+
+1. Frontend + backend code
+2. Dockerfile
+3. WebContainer integration
+4. Diff streaming implementation
+5. Multi-user sandbox isolation
+6. Instructions to run:
+
+   * `docker build -t opencode-runner .`
+   * `npm install`
+   * `npm run dev`
+
+Streaming must be **real-time**.
+Do **not** buffer output — frontend updates live while the sandbox runs.
+
+---
+
+💡 This design implements **Lovable/Cursor-level architecture** with:
+
+* ephemeral sandbox cloning
+* live SSE streaming
+* incremental diff updates
+* multi-user isolation
+* resource limits and auto-cleanup
+* live WebContainer preview
+* scalable, fast, and safe AI app generation
+
+**Implementation (cursor-web):** All of the above are implemented. **Snapshot cloning:** new workspaces are created by copying from `workspaces/_template` (minimal skeleton) so startup is faster than empty dir + git init. Old workspaces are pruned by `pruneOldWorkspaces` (auto-cleanup). **Live SSE streaming** via WebSocket and `GET /api/agent/sse?workspaceId=...&chatSessionId=...`. **Diff optimization:** for `edit_file` and `search_replace`, when the resulting file is larger than 8KB we send a unified diff instead of full content to reduce SSE/WS payload; the frontend already renders diffs. Diffs also use `git diff` and editor diff display; multi-user isolation is by `workspaceId`; resource limits use command timeouts and workspace age; preview is live via proxy to the dev server (browser WebContainer can be added later for a fully in-browser preview).

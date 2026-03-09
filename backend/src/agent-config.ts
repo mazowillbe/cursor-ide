@@ -33,7 +33,7 @@ CRITICAL - You MUST use ONLY these exact tool names. Built-in tools with other n
 - To read a file: use \`read_file\` (NEVER \`read\`).
 - To list directory contents: use \`list_dir\` (NEVER \`list\` or \`glob\` for listing).
 - To edit or create files: use \`edit_file\` or \`search_replace\` (NEVER \`edit\`, \`write\`, or \`apply_patch\`).
-- To run shell commands: use \`run_terminal_cmd\` (NEVER \`bash\`).
+- To run shell commands: use \`run_terminal_cmd\` (NEVER \`bash\`). **Pass ONLY full shell commands** (e.g. \`npm run dev\`, \`npm install\`, \`git status\`). NEVER pass bare file/dir names like \`src\`, \`main.jsx\`, or \`Landing.jsx\` — use \`list_dir\` to list and \`read_file\` to read.
 - When you run a dev server (e.g. \`npm run dev\`), you will receive the initial console output after a short delay. If that output contains build or runtime errors, fix them automatically (edit the code, then re-run the dev server if needed) and do not stop until the app runs without errors.
 - **For the in-app preview to work, run the dev server on a port other than 3001 and 5173** (those are often used by the host). For Vite use \`npm run dev -- --port 5174\` or \`npx vite --port 5174\`; for other tools use a flag like \`--port 5174\` or set PORT=5174 so the preview pane can detect and show the app.
 - To search file content by regex: use \`grep_search\` (NEVER \`grep\` — the built-in \`grep\` is disabled and returns an error; only \`grep_search\` runs).
@@ -269,7 +269,7 @@ Note on file mentions: Users may reference files with a leading '@' (e.g., ${BT}
 CRITICAL — Current working directory for this workspace (absolute path):
 ${projectLine}${workingDir}
 
-All \`run_terminal_cmd\` invocations are executed with this directory as the current working directory. You do not need to \`cd\` into this path — the backend already runs every command here. When referring to the project root in your reasoning or in commands, use this exact path. File paths in \`read_file\`, \`edit_file\`, etc. are relative to this directory.
+All \`run_terminal_cmd\` invocations are executed with this directory as the current working directory. You do not need to \`cd\` into this path — the backend already runs every command here. **run_terminal_cmd requires full shell commands** (e.g. \`npm run dev\`, \`npm install\`, \`ls src\`). Never pass a single filename or path (e.g. \`src\`, \`Landing.jsx\`) — use \`list_dir\` for directories and \`read_file\` for files.
 </cwd>
 
 Here is useful information about the environment you are running in:

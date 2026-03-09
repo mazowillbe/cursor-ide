@@ -19,6 +19,9 @@ const workspaceRoot = path.resolve(process.cwd(), config.workspaceRoot);
 /** Cache for project root to avoid repeated filesystem traversal */
 const projectRootCache = new Map<WorkspaceId, string>();
 
+/** Template workspace used for snapshot cloning to reduce startup time. Not pruned. */
+const TEMPLATE_DIR_NAME = "_template";
+
 /**
  * Clear the project root cache for a workspace (call when files are created/deleted).
  */
@@ -28,6 +31,23 @@ export function invalidateProjectRootCache(workspaceId: WorkspaceId): void {
 
 export async function ensureWorkspaceRoot(): Promise<void> {
   await fs.mkdir(workspaceRoot, { recursive: true });
+}
+
+/**
+ * Ensure the snapshot template directory exists (minimal skeleton so new workspaces copy from it).
+ * Used by createWorkspace / createWorkspaceWithId for faster startup than empty dir + git init.
+ */
+async function ensureTemplateDir(): Promise<string> {
+  const templatePath = path.join(workspaceRoot, TEMPLATE_DIR_NAME);
+  if (!existsSync(templatePath)) {
+    await fs.mkdir(templatePath, { recursive: true });
+    await fs.writeFile(
+      path.join(templatePath, ".gitignore"),
+      "node_modules\n.env\n.env.local\n.DS_Store\n",
+      "utf8"
+    );
+  }
+  return templatePath;
 }
 
 export function getWorkspacePath(workspaceId: WorkspaceId): string {
@@ -150,7 +170,10 @@ export async function createWorkspace(): Promise<WorkspaceId> {
   await ensureWorkspaceRoot();
   const id = randomUUID();
   const dir = getWorkspacePath(id);
-  await fs.mkdir(dir, { recursive: true });
+  const templatePath = await ensureTemplateDir();
+  await fs.cp(templatePath, dir, { recursive: true });
+  const gitDir = path.join(dir, ".git");
+  if (existsSync(gitDir)) await fs.rm(gitDir, { recursive: true, force: true });
   initGitInWorkspace(id);
   return id;
 }
@@ -161,7 +184,10 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-
 export async function createWorkspaceWithId(id: WorkspaceId): Promise<void> {
   await ensureWorkspaceRoot();
   const dir = getWorkspacePath(id);
-  await fs.mkdir(dir, { recursive: true });
+  const templatePath = await ensureTemplateDir();
+  await fs.cp(templatePath, dir, { recursive: true });
+  const gitDir = path.join(dir, ".git");
+  if (existsSync(gitDir)) await fs.rm(gitDir, { recursive: true, force: true });
   if (config.useSupabaseFiles && UUID_REGEX.test(id)) {
     await syncSupabaseToDisk(id, dir);
   }
@@ -261,6 +287,39 @@ export async function workspaceExists(workspaceId: WorkspaceId): Promise<boolean
   } catch {
     return false;
   }
+}
+
+/**
+ * Prune workspace directories older than config.maxWorkspaceAgeMs (resource limits and auto-cleanup).
+ * Skips workspace IDs in activeWorkspaceIds (e.g. sessions with open WebSockets).
+ * Returns the number of workspaces removed.
+ */
+export async function pruneOldWorkspaces(activeWorkspaceIds: Set<string>): Promise<number> {
+  const maxAge = config.maxWorkspaceAgeMs ?? 24 * 60 * 60 * 1000;
+  const deadline = Date.now() - maxAge;
+  let removed = 0;
+  try {
+    const entries = await fs.readdir(workspaceRoot, { withFileTypes: true });
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const id = e.name;
+      if (id === TEMPLATE_DIR_NAME || activeWorkspaceIds.has(id)) continue;
+      const dirPath = path.join(workspaceRoot, id);
+      try {
+        const stat = await fs.stat(dirPath);
+        if (stat.mtimeMs < deadline) {
+          await fs.rm(dirPath, { recursive: true, force: true });
+          removed++;
+          console.log("[workspace] pruned old workspace", id);
+        }
+      } catch (err) {
+        console.warn("[workspace] prune stat/rm failed for", id, err instanceof Error ? err.message : err);
+      }
+    }
+  } catch (err) {
+    console.warn("[workspace] prune readdir failed", err instanceof Error ? err.message : err);
+  }
+  return removed;
 }
 
 export interface RunCommandStreamCallbacks {
