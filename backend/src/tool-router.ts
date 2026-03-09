@@ -345,6 +345,12 @@ export async function executeTool(
         killExistingDevServer(workspaceId);
       }
       const isDevServer = isDevServerCommand(cmdTrimmed);
+      // When NODE_ENV=production, npm install skips devDependencies (vite, etc.). Force development so dev deps install.
+      const isNpmInstall = /^npm\s+(?:i|install|ci)(?:\s|$)/.test(cmdTrimmed);
+      const streamOptions = {
+        timeoutMs: isDevServer ? undefined : DEFAULT_COMMAND_TIMEOUT_MS,
+        ...(isNpmInstall && { envOverride: { NODE_ENV: "development" } }),
+      };
       return new Promise<ToolResult>((resolve) => {
         const chunks: string[] = [];
         let resolved = false;
@@ -382,9 +388,7 @@ export async function executeTool(
               });
             },
           },
-          {
-            timeoutMs: isDevServer ? undefined : DEFAULT_COMMAND_TIMEOUT_MS,
-          }
+          streamOptions
         );
         if (isDevServer) {
           registerDevServerProcess(workspaceId, proc.kill);

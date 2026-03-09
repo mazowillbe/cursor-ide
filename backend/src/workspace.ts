@@ -330,6 +330,8 @@ export interface RunCommandStreamCallbacks {
 export interface RunCommandStreamOptions {
   /** Max run time (ms). Process is killed after this. Omit for no limit. */
   timeoutMs?: number;
+  /** Env vars to merge (override process.env) for this command. Used e.g. to set NODE_ENV=development for npm install. */
+  envOverride?: NodeJS.ProcessEnv;
 }
 
 /**
@@ -380,9 +382,10 @@ export function runCommandStream(
   const isWin = process.platform === "win32";
   const shell = isWin ? "cmd.exe" : "/bin/sh";
   const args = isWin ? ["/c", commandToRun] : ["-c", commandToRun];
+  const env = { ...process.env, TERM: "dumb", ...options?.envOverride };
   const child = spawn(shell, args, {
     cwd,
-    env: { ...process.env, TERM: "dumb" },
+    env,
     stdio: ["ignore", "pipe", "pipe"],
   });
   let ended = false;
