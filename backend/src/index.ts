@@ -136,8 +136,13 @@ async function main() {
           return;
         }
         const ct = (upstream.headers.get("content-type") ?? "").toLowerCase();
+        // Fallback to extension-based detection when content-type is missing or incorrect
+        const ext = downstreamPath.toLowerCase().split("?")[0].split("#")[0];
         const isHtml = ct.includes("text/html");
-        const isJs = ct.includes("javascript") || ct.includes("ecmascript");
+        const isJs = ct.includes("javascript") || ct.includes("ecmascript") || 
+          (ct === "" && (ext.endsWith(".js") || ext.endsWith(".jsx") || ext.endsWith(".ts") || ext.endsWith(".tsx") || ext.endsWith(".mjs") || ext.endsWith(".cjs")));
+        const isCss = ct.includes("text/css") || 
+          (ct === "" && (ext.endsWith(".css") || ext.endsWith(".scss") || ext.endsWith(".less") || ext.endsWith(".sass")));
 
         const isIndexRequest = downstreamPath === "/" || downstreamPath === "" || downstreamPath === "/index.html";
         console.log("[preview] upstream response", {
@@ -145,9 +150,10 @@ async function main() {
           contentType: ct.slice(0, 50),
           isHtml,
           isJs,
+          isCss,
           isIndexRequest,
           willRewriteHtml: isHtml && isIndexRequest && !!prefix,
-          willRewriteJs: isJs && !!prefix,
+          willRewriteJs: (isJs || (ct === "" && ext.match(/\.(js|jsx|ts|tsx|mjs|cjs)$/))) && !!prefix,
         });
 
         if (isHtml && isIndexRequest && prefix) {
@@ -189,7 +195,7 @@ async function main() {
           return;
         }
 
-        if (isJs && prefix) {
+        if ((isJs || (ct === "" && ext.match(/\.(js|jsx|ts|tsx|mjs|cjs)$/))) && prefix) {
           let body = await upstream.text();
           const isViteDep = downstreamPath.startsWith("/node_modules/.vite/deps/");
           const isViteClient = downstreamPath === "/@vite/client";
@@ -245,9 +251,9 @@ async function main() {
           return;
         }
 
-        if (ct.includes("text/css") && prefix) {
+        if ((isCss || ct.includes("text/css")) && prefix) {
           const body = await upstream.text();
-          console.log("[preview] rewriting CSS", { prefix, path: downstreamPath });
+          console.log("[preview] rewriting CSS", { prefix, path: downstreamPath, isCss });
           const rewritten = body.replace(/url\((["']?)(\/)(?!\/)/g, `url($1${prefix}$2`);
           res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "text/css");
           res.setHeader("Content-Length", Buffer.byteLength(rewritten, "utf8"));
