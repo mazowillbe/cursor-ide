@@ -5,6 +5,7 @@
  */
 
 import * as net from "node:net";
+import * as http from "node:http";
 
 /** Strip ANSI escape sequences so regex can match (e.g. Vite puts \u001b[1m between localhost: and the port). */
 function stripAnsi(text: string): string {
@@ -174,4 +175,68 @@ export function waitForPortReachable(port: number, timeoutMs: number): Promise<s
     };
     poll();
   });
+}
+
+/**
+ * Wait until the dev server returns a valid HTTP response (not just accepts TCP connections).
+ * This is important because Vite logs "Local: http://localhost:5173" before it's ready to serve.
+ * Returns the host that worked or null if timeout/connection failure.
+ */
+export async function waitForHttpReady(
+  port: number,
+  host: string,
+  timeoutMs: number = 30000
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  
+  const tryHttp = (): Promise<boolean> =>
+    new Promise((resolve) => {
+      const req = http.get(`http://${host}:${port}/`, { timeout: 3000 }, (res) => {
+        // Accept any HTTP response (including redirects) as "ready"
+        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 400) {
+          resolve(true);
+        } else if (res.statusCode && res.statusCode >= 400 && res.statusCode < 500) {
+          // Some 4xx errors (like missing favicon) still mean server is ready
+          resolve(true);
+        } else {
+          resolve(false);
+        }
+        res.destroy();
+      });
+      
+      req.on("error", () => resolve(false));
+      req.on("timeout", () => { req.destroy(); resolve(false); });
+    });
+
+  // First wait for TCP connection, then verify HTTP
+  const tcpHost = await waitForPortReachable(port, Math.min(timeoutMs, 5000));
+  if (!tcpHost) return false;
+
+  // Poll for HTTP response
+  while (Date.now() < deadline) {
+    if (await tryHttp()) {
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  
+  return false;
+}
+
+/**
+ * Wait for port to be reachable AND server to return valid HTTP response.
+ * This ensures the preview iframe won't show blank screen because Vite is still initializing.
+ * Returns the host that worked, or null if either TCP or HTTP check fails.
+ */
+export async function waitForServerReady(
+  port: number,
+  timeoutMs: number = 30000
+): Promise<string | null> {
+  // First ensure TCP connection works
+  const host = await waitForPortReachable(port, Math.min(timeoutMs, 5000));
+  if (!host) return null;
+
+  // Then verify HTTP is actually serving content
+  const httpReady = await waitForHttpReady(port, host, timeoutMs);
+  return httpReady ? host : null;
 }

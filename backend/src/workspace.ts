@@ -16,6 +16,16 @@ export type WorkspaceId = string;
 
 const workspaceRoot = path.resolve(process.cwd(), config.workspaceRoot);
 
+/** Cache for project root to avoid repeated filesystem traversal */
+const projectRootCache = new Map<WorkspaceId, string>();
+
+/**
+ * Clear the project root cache for a workspace (call when files are created/deleted).
+ */
+export function invalidateProjectRootCache(workspaceId: WorkspaceId): void {
+  projectRootCache.delete(workspaceId);
+}
+
 export async function ensureWorkspaceRoot(): Promise<void> {
   await fs.mkdir(workspaceRoot, { recursive: true });
 }
@@ -26,24 +36,102 @@ export function getWorkspacePath(workspaceId: WorkspaceId): string {
 
 /**
  * Find the project root (directory containing package.json) within the workspace.
- * Checks workspace root first, then one level of subdirectories (e.g. /workspace/<id>/todo-app).
+ * Checks workspace root first, then up to 3 levels of subdirectories.
+ * Uses caching to avoid repeated filesystem calls.
  * Returns that directory path, or the workspace path if no package.json is found.
  */
 export function findProjectRoot(workspaceId: WorkspaceId): string {
+  // Check cache first
+  const cached = projectRootCache.get(workspaceId);
+  if (cached && existsSync(cached)) return cached;
+
   const base = getWorkspacePath(workspaceId);
-  if (existsSync(path.join(base, "package.json"))) return base;
-  try {
-    const entries = readdirSync(base, { withFileTypes: true });
-    for (const e of entries) {
-      if (e.isDirectory()) {
-        const candidate = path.join(base, e.name);
-        if (existsSync(path.join(candidate, "package.json"))) return candidate;
+  
+  // Helper to check if a directory contains package.json
+  const hasPackageJson = (dir: string) => existsSync(path.join(dir, "package.json"));
+  
+  const buildConfigFiles = [
+    "vite.config.js", "vite.config.ts", "vite.config.mjs", "vite.config.mts",
+    "next.config.js", "next.config.mjs", "next.config.ts",
+    "nuxt.config.js", "nuxt.config.ts",
+    "webpack.config.js", "webpack.config.ts",
+    "rollup.config.js", "rollup.config.ts",
+    "esbuild.config.js",
+  ];
+  
+  const hasBuildConfig = (dir: string) => buildConfigFiles.some(f => existsSync(path.join(dir, f)));
+
+  // Check workspace root
+  if (hasPackageJson(base)) {
+    projectRootCache.set(workspaceId, base);
+    return base;
+  }
+
+  // Search up to 3 levels deep for package.json
+  const maxDepth = 3;
+  const found = findPackageJsonDeep(base, maxDepth, hasPackageJson, hasBuildConfig);
+  if (found) {
+    projectRootCache.set(workspaceId, found);
+    return found;
+  }
+
+  // Fall back to workspace root
+  projectRootCache.set(workspaceId, base);
+  return base;
+}
+
+/**
+ * Recursively search for package.json up to maxDepth levels.
+ * Prioritizes directories with build config files (vite.config.*, next.config.*, etc.)
+ */
+function findPackageJsonDeep(
+  base: string, 
+  maxDepth: number, 
+  checkPackageJson: (dir: string) => boolean,
+  checkBuildConfig: (dir: string) => boolean
+): string | null {
+
+  interface DirEntry {
+    path: string;
+    depth: number;
+  }
+
+  const candidates: DirEntry[] = [];
+
+  function searchDir(dir: string, depth: number): void {
+    if (depth > maxDepth) return;
+    
+    if (checkPackageJson(dir)) {
+      // Score this directory: prefer those with build config files
+      const score = checkBuildConfig(dir) ? 2 : 1;
+      candidates.push({ path: dir, depth: score });
+    }
+
+    if (depth < maxDepth) {
+      try {
+        const entries = readdirSync(dir, { withFileTypes: true });
+        for (const e of entries) {
+          if (e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules") {
+            searchDir(path.join(dir, e.name), depth + 1);
+          }
+        }
+      } catch {
+        // Ignore readdir errors
       }
     }
-  } catch {
-    // ignore readdir errors, fall back to workspace root
   }
-  return base;
+
+  try {
+    searchDir(base, 0);
+  } catch {
+    return null;
+  }
+
+  if (candidates.length === 0) return null;
+
+  // Sort by score (depth is repurposed as score: build config = 2, just package.json = 1)
+  candidates.sort((a, b) => b.depth - a.depth);
+  return candidates[0]!.path;
 }
 
 /** Run git init in the workspace so we can track diffs. Skips if .git already exists to avoid re-init warning. */
