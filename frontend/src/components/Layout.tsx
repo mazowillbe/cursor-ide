@@ -292,7 +292,7 @@ export default function Layout({
                         <iframe
                           key={`${previewUrl}-${previewPort ?? ""}-${previewRefreshKey}`}
                           ref={previewIframeRef}
-                          src={previewUrl}
+                          src={`${previewUrl}${previewUrl?.includes("?") ? "&" : "?"}_t=${previewRefreshKey}`}
                           title="App preview"
                           className="w-full h-full border-0 bg-white"
                           sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
@@ -531,7 +531,7 @@ export default function Layout({
                             <iframe
                               key={`${previewUrl}-${previewPort ?? ""}-${previewRefreshKey}`}
                               ref={previewIframeRef}
-                              src={previewUrl}
+                              src={`${previewUrl}${previewUrl?.includes("?") ? "&" : "?"}_t=${previewRefreshKey}`}
                               title="App preview"
                               className="w-full h-full border-0 bg-white"
                               sandbox="allow-scripts allow-same-origin allow-forms allow-popups"

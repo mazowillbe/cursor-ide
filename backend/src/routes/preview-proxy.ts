@@ -24,7 +24,7 @@ export function getPreviewProxyRouter(
   });
 
   // Match /:workspaceId, /:workspaceId/, and /:workspaceId/any/subpath (iframe and all assets)
-  router.use("/:workspaceId", (req: Request, res: Response, next) => {
+  router.use("/:workspaceId", (req: Request, res: Response) => {
     const workspaceId = req.params.workspaceId;
     const target = workspaceId ? getPreviewTarget(workspaceId) : null;
     if (!target) {
@@ -35,9 +35,12 @@ export function getPreviewProxyRouter(
     // req.url may be full path or path-after-mount depending on Express; req.originalUrl is the full path.
     const pathOnly = (req.originalUrl ?? req.url ?? "/").split("?")[0];
     const prefix = `/api/preview/${workspaceId}`;
-    const downstreamPath = pathOnly === prefix || pathOnly.startsWith(prefix + "/")
-      ? pathOnly.slice(prefix.length) || "/"
-      : pathOnly.replace(/^\/[^/]*/, "") || "/";
+    // Ensure we handle both /:workspaceId and /:workspaceId/ correctly
+    const downstreamPath = pathOnly === prefix || pathOnly === prefix + "/"
+      ? "/"
+      : pathOnly.startsWith(prefix + "/")
+        ? pathOnly.slice(prefix.length)
+        : pathOnly.replace(/^\/[^/]*/, "") || "/";
     req.url = downstreamPath;
     (req as Request & { previewWorkspaceId?: string; previewDownstreamPath?: string }).previewWorkspaceId = workspaceId;
     (req as Request & { previewWorkspaceId?: string; previewDownstreamPath?: string }).previewDownstreamPath = downstreamPath;

@@ -98,6 +98,7 @@ async function main() {
         prefix: prefix || "(empty)",
         downstreamPath,
         fetchUrl: url,
+        method: req.method,
       });
       if (!prefix) {
         console.warn("[preview] no prefix — HTML/JS/CSS will not be rewritten; assets may 404");
@@ -111,9 +112,26 @@ async function main() {
           forwardHeaders[k] = Array.isArray(v) ? v[0]! : v;
         }
         forwardHeaders.host = targetHost;
-        const upstream = await fetch(url, { headers: forwardHeaders });
+        const upstream = await fetch(url, { headers: forwardHeaders, redirect: "manual" });
+
+        // Handle redirects from upstream
+        if (upstream.status >= 300 && upstream.status < 400) {
+          const location = upstream.headers.get("location");
+          if (location) {
+            // Rewrite the location header to go through the proxy
+            const rewrittenLocation = location.startsWith("/")
+              ? `${prefix}${location}`
+              : location;
+            console.log("[preview] rewriting redirect", { from: location, to: rewrittenLocation });
+            res.status(upstream.status);
+            res.setHeader("Location", rewrittenLocation);
+            res.end();
+            return;
+          }
+        }
+
         if (!upstream.ok) {
-          console.warn("[preview] upstream non-OK", { url, status: upstream.status });
+          console.warn("[preview] upstream non-OK", { url, status: upstream.status, downstreamPath });
           res.status(upstream.status).end();
           return;
         }
@@ -134,13 +152,23 @@ async function main() {
 
         if (isHtml && isIndexRequest && prefix) {
           const html = await upstream.text();
+          if (!html || html.length === 0) {
+            console.error("[preview] empty HTML response from upstream", { url, downstreamPath });
+            res.status(502).send("Empty HTML response from dev server");
+            return;
+          }
           const matchCount = (html.match(/(src|href)\s*=\s*(["'])(\/)(?!\/)([^"']*)["']/g) ?? []).length;
-          console.log("[preview] rewriting HTML", { prefix, srcHrefMatchCount: matchCount });
+          console.log("[preview] rewriting HTML", { prefix, srcHrefMatchCount: matchCount, htmlLength: html.length, preview: html.slice(0, 200) });
           // Rewrite src/href so absolute paths go through the preview proxy (allow optional whitespace around =)
           let injected = html.replace(
             /(src|href)\s*=\s*(["'])(\/)(?!\/)([^"']*)["']/g,
             (_: string, attr: string, quote: string, _slash: string, pathRest: string) =>
               `${attr}=${quote}${prefix}/${pathRest}${quote}`
+          );
+          // Also rewrite <base href="/"> tags to use the proxy prefix
+          injected = injected.replace(
+            /(<base[^>]*\s+href\s*=\s*["'])(\/)(["'])/gi,
+            `$1${prefix}/$3`
           );
           // Inject WebSocket interceptor so Vite HMR connects to /api/preview/:id/ instead of /
           const wsInterceptor = `<script>(function(){var b=location.pathname.replace(/\\/@vite\\/client.*$/,"").replace(/\\/?$/,"/");window.__VITE_HMR_BASE__=b;var O=WebSocket;window.WebSocket=function(u,a){if(typeof u==="string"&&(u.startsWith("ws://")||u.startsWith("wss://"))&&!u.includes("/api/preview/")){try{var url=new URL(u,location.href);url.pathname=b||"/";u=url.toString()}catch(e){}}return new O(u,a)};})();</script>`;
@@ -152,6 +180,11 @@ async function main() {
             injected = wsInterceptor + injected;
           }
           res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "text/html; charset=utf-8");
+          res.setHeader("Content-Length", Buffer.byteLength(injected, "utf8"));
+          // Prevent caching of HTML to ensure fresh requests and proper proxying
+          res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+          res.setHeader("Pragma", "no-cache");
+          res.setHeader("Expires", "0");
           res.send(injected);
           return;
         }
@@ -185,10 +218,16 @@ async function main() {
           const isAppEntry =
             downstreamPath === "/src/main.jsx" ||
             downstreamPath === "/src/main.js" ||
+            downstreamPath === "/src/main.tsx" ||
+            downstreamPath === "/src/main.ts" ||
             downstreamPath === "/src/App.jsx" ||
             downstreamPath === "/src/App.js" ||
+            downstreamPath === "/src/App.tsx" ||
+            downstreamPath === "/src/App.ts" ||
             downstreamPath === "/src/index.jsx" ||
-            downstreamPath === "/src/index.js";
+            downstreamPath === "/src/index.js" ||
+            downstreamPath === "/src/index.tsx" ||
+            downstreamPath === "/src/index.ts";
           const hasReactImport = /from\s*["']react["']|from\s*["']react\/jsx-runtime["']/.test(body);
           if (isAppEntry && !hasReactImport) {
             const preambleMatch = body.match(/^(\s*import\s+RefreshRuntime\s+from\s+["']\/@react-refresh["'][^;]*;\s*\n?)/);
@@ -216,8 +255,12 @@ async function main() {
           return;
         }
 
-        console.log("[preview] passthrough (no rewrite)", { downstreamPath, contentType: ct.slice(0, 40) });
+        console.log("[preview] passthrough (no rewrite)", { downstreamPath, contentType: ct.slice(0, 40), status: upstream.status });
+        res.status(upstream.status);
         res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "application/octet-stream");
+        // Copy other important headers
+        const contentLength = upstream.headers.get("content-length");
+        if (contentLength) res.setHeader("Content-Length", contentLength);
         const buf = await upstream.arrayBuffer();
         res.end(Buffer.from(buf));
       } catch (e) {
