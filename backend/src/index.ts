@@ -139,10 +139,13 @@ async function main() {
         // Fallback to extension-based detection when content-type is missing or incorrect
         const ext = downstreamPath.toLowerCase().split("?")[0].split("#")[0];
         const isHtml = ct.includes("text/html");
-        const isJs = ct.includes("javascript") || ct.includes("ecmascript") || 
-          (ct === "" && (ext.endsWith(".js") || ext.endsWith(".jsx") || ext.endsWith(".ts") || ext.endsWith(".tsx") || ext.endsWith(".mjs") || ext.endsWith(".cjs")));
-        const isCss = ct.includes("text/css") || 
-          (ct === "" && (ext.endsWith(".css") || ext.endsWith(".scss") || ext.endsWith(".less") || ext.endsWith(".sass")));
+        // For extension-based detection, check first - Vite sometimes serves .css with content-type:text/javascript
+        const extIsJs = ext.endsWith(".js") || ext.endsWith(".jsx") || ext.endsWith(".ts") || ext.endsWith(".tsx") || ext.endsWith(".mjs") || ext.endsWith(".cjs");
+        const extIsCss = ext.endsWith(".css") || ext.endsWith(".scss") || ext.endsWith(".less") || ext.endsWith(".sass");
+        // Use extension-based detection when content-type is unreliable (Vite serves CSS as JS for HMR)
+        const isJs = (ct.includes("javascript") || ct.includes("ecmascript")) && !extIsCss ||
+          extIsJs;
+        const isCss = ct.includes("text/css") || extIsCss;
 
         const isIndexRequest = downstreamPath === "/" || downstreamPath === "" || downstreamPath === "/index.html";
         console.log("[preview] upstream response", {
@@ -153,7 +156,7 @@ async function main() {
           isCss,
           isIndexRequest,
           willRewriteHtml: isHtml && isIndexRequest && !!prefix,
-          willRewriteJs: (isJs || (ct === "" && ext.match(/\.(js|jsx|ts|tsx|mjs|cjs)$/))) && !!prefix,
+          willRewriteJs: isJs && !!prefix,
         });
 
         if (isHtml && isIndexRequest && prefix) {
@@ -195,7 +198,7 @@ async function main() {
           return;
         }
 
-        if ((isJs || (ct === "" && ext.match(/\.(js|jsx|ts|tsx|mjs|cjs)$/))) && prefix) {
+        if (isJs && prefix) {
           let body = await upstream.text();
           const isViteDep = downstreamPath.startsWith("/node_modules/.vite/deps/");
           const isViteClient = downstreamPath === "/@vite/client";
@@ -251,7 +254,7 @@ async function main() {
           return;
         }
 
-        if ((isCss || ct.includes("text/css")) && prefix) {
+        if (isCss && prefix) {
           const body = await upstream.text();
           console.log("[preview] rewriting CSS", { prefix, path: downstreamPath, isCss });
           const rewritten = body.replace(/url\((["']?)(\/)(?!\/)/g, `url($1${prefix}$2`);
