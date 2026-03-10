@@ -329,7 +329,7 @@ export async function executeTool(
           tool: rawTool,
           success: false,
           error:
-            "Command not allowed. Only npm, npx, node, yarn, pnpm, git (and cd within workspace) are permitted.",
+            "Command not allowed. Only npm, npx, node, yarn, pnpm, git, supabase (and cd within workspace) are permitted.",
         };
       }
       if (isCommandAttemptingEscape(cmdTrimmed, projectRoot)) {
@@ -347,9 +347,27 @@ export async function executeTool(
       const isDevServer = isDevServerCommand(cmdTrimmed);
       // When NODE_ENV=production, npm install skips devDependencies (vite, etc.). Force development so dev deps install.
       const isNpmInstall = /^npm\s+(?:i|install|ci)(?:\s|$)/.test(cmdTrimmed);
+      const isSupabaseCmd = /^(npx\s+)?supabase\b/i.test(cmdTrimmed);
+      const supabaseEnv: NodeJS.ProcessEnv = {};
+      let finalCommand: string = cmdTrimmed;
+      if (isSupabaseCmd) {
+        const supabaseBin = path.join(process.cwd(), "node_modules", ".bin");
+        supabaseEnv.PATH = `${supabaseBin}${path.delimiter}${process.env.PATH || ""}`;
+        if (process.env.SUPABASE_ACCESS_TOKEN) supabaseEnv.SUPABASE_ACCESS_TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
+        if (process.env.SUPABASE_URL) supabaseEnv.SUPABASE_URL = process.env.SUPABASE_URL;
+        if (process.env.SUPABASE_SERVICE_ROLE_KEY) supabaseEnv.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        const ref = process.env.SUPABASE_URL?.match(/https:\/\/([a-zA-Z0-9]+)\.supabase\.co/)?.[1];
+        if (ref) {
+          supabaseEnv.SUPABASE_PROJECT_REF = ref;
+          finalCommand = cmdTrimmed.replace(/\$SUPABASE_PROJECT_REF|%SUPABASE_PROJECT_REF%/g, ref);
+        }
+      }
       const streamOptions = {
         timeoutMs: isDevServer ? undefined : DEFAULT_COMMAND_TIMEOUT_MS,
-        ...(isNpmInstall && { envOverride: { NODE_ENV: "development" } }),
+        envOverride: {
+          ...(isNpmInstall && { NODE_ENV: "development" }),
+          ...(Object.keys(supabaseEnv).length > 0 && supabaseEnv),
+        },
       };
       return new Promise<ToolResult>((resolve) => {
         const chunks: string[] = [];
@@ -366,7 +384,7 @@ export async function executeTool(
         };
         const proc = runCommandStream(
           workspaceId,
-          cmdTrimmed,
+          finalCommand,
           {
             onChunk(chunk) {
               chunks.push(chunk);

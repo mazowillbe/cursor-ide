@@ -13,6 +13,7 @@ const ALLOWED = new Set([
   "yarn",
   "pnpm",
   "git",
+  "supabase",
   "cmd",
   "echo",
   "true",

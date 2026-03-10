@@ -6,6 +6,7 @@
 import { Router, type Request, type Response } from "express";
 import { executeTool } from "../tool-router.js";
 import { getSessionSocket } from "../websocket.js";
+import { isThinkingToolRequired, markThinkingToolCalled } from "../thinking-tracker.js";
 import { detectAndRegister, waitForPortReachable, setPreviewHost } from "../preview-manager.js";
 import { detectRebuildFromOutput } from "../dev-server-manager.js";
 import { registerRunningCommand, unregisterRunningCommand, killRunningCommand } from "../running-commands.js";
@@ -44,6 +45,17 @@ router.post("/agent/execute-tool", async (req: Request, res: Response): Promise<
     if (!workspaceId || !tool) {
       res.status(400).json({ success: false, error: "Missing workspaceId or tool" });
       return;
+    }
+
+    if (isThinkingToolRequired(workspaceId) && tool !== "thinking_tool") {
+      res.status(400).json({
+        success: false,
+        error: "You must call thinking_tool first to plan your approach before using other tools.",
+      });
+      return;
+    }
+    if (tool === "thinking_tool") {
+      markThinkingToolCalled(workspaceId);
     }
 
     const ws = getSessionSocket(workspaceId, chatSessionId);

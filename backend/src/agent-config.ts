@@ -11,6 +11,7 @@ const SYSTEM_PROMPT_PATH = path.resolve(__dirname, "..", "opencode-config", "sys
  */
 export function getCustomToolNamesSync(): string[] {
   return [
+    "thinking_tool",
     "read_file",
     "list_dir",
     "edit_file",
@@ -27,7 +28,6 @@ export function getCustomToolNamesSync(): string[] {
     "edit_notebook",
     "todowrite",
     "todoread",
-    "thinking_tool",
   ];
 }
 

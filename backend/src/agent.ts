@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { spawn, type ChildProcess } from "child_process";
 import { createWorkspaceWithId, findProjectRoot } from "./workspace.js";
 import { getHardcodedAgentConfig } from "./agent-config.js";
+import { resetThinkingToolRequired } from "./thinking-tracker.js";
 import { createServerClient } from "./lib/supabase/server.js";
 
 const require = createRequire(import.meta.url);
@@ -58,6 +59,17 @@ export async function runOpenCode(
   chatSessionId?: string
 ): Promise<ProcessHandle> {
   await createWorkspaceWithId(workspaceId);
+  resetThinkingToolRequired(workspaceId);
+
+  let finalMessage = message;
+  const lower = message.toLowerCase();
+  const backendKeywords = /backend|database|auth|login|signup|api|full-stack|persist|store data|supabase/i;
+  if (backendKeywords.test(lower)) {
+    finalMessage =
+      "[IMPORTANT: Use Supabase for the backend. Run `supabase init` first, then `supabase link --project-ref $SUPABASE_PROJECT_REF`. Create migrations in supabase/migrations/, add @supabase/supabase-js to the frontend. Do NOT use Express or custom Node backend.]\n\n" +
+      message;
+  }
+
   const cwd = findProjectRoot(workspaceId);
   let projectName: string | undefined;
   try {
@@ -105,8 +117,8 @@ export async function runOpenCode(
     console.log("[agent] using npx opencode-ai (no global opencode)");
   }
   const messageForShell = isWin
-    ? message.replace(/\r?\n/g, " ").replace(/\s{2,}/g, " ").trim()
-    : message;
+    ? finalMessage.replace(/\r?\n/g, " ").replace(/\s{2,}/g, " ").trim()
+    : finalMessage;
   // On Windows cmd.exe, escape double quotes by doubling them (""). Backslash does not escape inside "..." in cmd.
   const quotedMessage = isWin
     ? messageForShell.replace(/"/g, '""')
@@ -192,12 +204,15 @@ export async function runOpenCode(
     }
     const useShell = process.platform === "win32";
     const sessionArgs = opencodeSessionId ? ["-s", opencodeSessionId] : [];
-    const runArgs = ["run", ...(config.openCodeUseJson ? ["--format", "json"] : []), ...sessionArgs, "-m", modelId, message];
+    const runArgs = ["run", ...(config.openCodeUseJson ? ["--format", "json"] : []), ...sessionArgs, "-m", modelId, finalMessage];
     const spawnEnv = { ...env, TERM: "dumb" };
 
     let child: ChildProcess;
     if (useShell) {
-      const cmd = `${opencodeCmd} run${jsonFlag}${sessionFlag} -m ${modelId} "${quotedMessage}"`;
+      const quotedFinal = isWin
+        ? messageForShell.replace(/"/g, '""')
+        : messageForShell.replace(/"/g, '\\"');
+      const cmd = `${opencodeCmd} run${jsonFlag}${sessionFlag} -m ${modelId} "${quotedFinal}"`;
       child = spawn(cmd, [], { cwd, env: spawnEnv, shell: true });
     } else if (useNpx) {
       child = spawn("npx", ["-y", "opencode-ai", ...runArgs], { cwd, env: spawnEnv });

@@ -21,6 +21,7 @@ import { attachAgentWebSocket } from "./websocket.js";
 import { attachTerminalWebSocket, TERMINAL_WS_PATH } from "./terminal-ws.js";
 import executeToolRouter from "./routes/execute-tool.js";
 import describeImageRouter from "./routes/describe-image.js";
+import { resetThinkingToolRequired } from "./thinking-tracker.js";
 import { getPreviewProxyRouter } from "./routes/preview-proxy.js";
 
 const AGENT_WS_PATH = "/api/agent";
@@ -57,6 +58,17 @@ async function main() {
   app.use("/api", lintsRouter);
   app.use("/api", executeToolRouter);
   app.use("/api", describeImageRouter);
+  if (process.env.ALLOW_TEST_ROUTES === "1") {
+    app.post("/api/test/reset-thinking", express.json(), (req, res) => {
+      const workspaceId = typeof req.body?.workspaceId === "string" ? req.body.workspaceId.trim() : "";
+      if (!workspaceId) {
+        res.status(400).json({ error: "Missing workspaceId" });
+        return;
+      }
+      resetThinkingToolRequired(workspaceId);
+      res.json({ ok: true });
+    });
+  }
 
   // Live SSE streaming: same agent events as WebSocket, for clients that prefer EventSource
   app.get("/api/agent/sse", (req: express.Request, res: express.Response) => {
