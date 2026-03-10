@@ -130,6 +130,26 @@ cursor-web/
 - In development, the Vite dev server proxies `/api` to the backend; the agent WebSocket connects directly to `ws://127.0.0.1:3001`.
 - For production, serve the frontend and backend from the same origin (or set your API/WS base URL via env and use it in `src/api/client.ts`).
 
+## Running with Docker (local)
+
+```bash
+# Build
+docker build -t cursor-web-backend ./backend
+docker build --build-arg VITE_API_URL=http://localhost:3001 -t cursor-web-frontend ./frontend
+
+# Run backend (use a named volume to avoid permission issues with workspace cleanup)
+docker run -d --name cursor-web-backend -p 3001:3001 \
+  -v cursor-web-workspaces:/var/data/workspaces \
+  --env-file backend/.env \
+  -e HOST=0.0.0.0 -e WORKSPACE_ROOT=/var/data/workspaces \
+  cursor-web-backend
+
+# Run frontend
+docker run -d --name cursor-web-frontend -p 3000:3000 cursor-web-frontend
+```
+
+Use a **named volume** (`cursor-web-workspaces`) instead of a bind mount to avoid `EACCES: permission denied` when pruning old workspaces.
+
 ## Production Build
 
 ```bash

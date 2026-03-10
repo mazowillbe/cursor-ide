@@ -108,9 +108,9 @@ function parseLintErrorCount(output: string): number {
   return 0;
 }
 
-/** Recursively list relative file paths under dir (relative to workspace). */
+/** Recursively list relative file paths under dir (relative to project root). */
 async function listFilesRecursive(workspaceId: WorkspaceId, dir: string): Promise<string[]> {
-  const base = getWorkspacePath(workspaceId);
+  const base = findProjectRoot(workspaceId);
   const target = path.join(base, path.normalize(dir));
   if (!target.startsWith(base)) return [];
   const entries = await fs.readdir(target, { withFileTypes: true }).catch(() => []);

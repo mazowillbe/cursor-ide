@@ -710,15 +710,27 @@ export default function ChatPanel({
     const supabase = createSupabaseClient();
     const { data } = await supabase
       .from("chat_messages")
-      .select("id, role, content")
+      .select("id, role, content, context")
       .eq("session_id", sessionId)
       .order("created_at", { ascending: true });
     setMessages(
-      (data ?? []).map((m) => ({
-        id: m.id,
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      }))
+      (data ?? []).map((m) => {
+        const base = {
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          content: m.content ?? "",
+        };
+        if (m.role !== "assistant") return base;
+        const ctx = m.context as { blocks?: ContentBlock[]; thinking?: string; thinkingDurationMs?: number } | null;
+        if (!ctx) return base;
+        const blocks = Array.isArray(ctx.blocks) && ctx.blocks.length > 0 ? ctx.blocks : undefined;
+        return {
+          ...base,
+          ...(blocks ? { blocks } : {}),
+          ...(typeof ctx.thinking === "string" ? { thinking: ctx.thinking } : {}),
+          ...(typeof ctx.thinkingDurationMs === "number" ? { thinkingDurationMs: ctx.thinkingDurationMs } : {}),
+        };
+      })
     );
   };
 
@@ -873,7 +885,7 @@ export default function ChatPanel({
     if (enableProjectNaming) {
       const suggestedName = await suggestProjectName(messageToSend).catch(() => null);
       if (suggestedName && session?.access_token) {
-        updateProjectName(workspaceId, suggestedName, session.access_token).catch(() => {});
+        await updateProjectName(workspaceId, suggestedName, session.access_token).catch(() => {});
         onSessionTitleUpdate?.(suggestedName);
       }
     }
@@ -1072,6 +1084,7 @@ export default function ChatPanel({
               ? blocksToContent(blocksRef.current)
               : streamBufferRef.current || "(No response)";
           const endTime = Date.now();
+          const blocksToSave = blocksRef.current.length > 0 ? [...blocksRef.current] : undefined;
           setMessages((prev) =>
             prev.map((m) => {
               if (m.id !== assistantId) return m;
@@ -1084,6 +1097,7 @@ export default function ChatPanel({
                 ...m,
                 content: contentToSave,
                 streaming: false,
+                ...(blocksToSave ? { blocks: blocksToSave } : {}),
                 ...(typeof durationMs === "number" ? { thinkingDurationMs: durationMs } : {}),
               };
             })
@@ -1092,9 +1106,27 @@ export default function ChatPanel({
           ws.close();
           const sid = sessId;
           if (sid) {
+            const currentMsg = messagesRef.current.find((x) => x.id === assistantId);
+            const thinkingStartedAt = currentMsg?.thinkingStartedAt;
+            const thinkingDurationMs =
+              typeof thinkingStartedAt === "number" ? Math.max(0, endTime - thinkingStartedAt) : undefined;
+            const thinkingText = (thinkingBufferRef.current ?? "").trim();
+            const context =
+              blocksToSave?.length || thinkingText || thinkingDurationMs != null
+                ? {
+                    blocks: blocksToSave ?? [],
+                    ...(thinkingText ? { thinking: thinkingText } : {}),
+                    ...(thinkingDurationMs != null ? { thinkingDurationMs } : {}),
+                  }
+                : null;
             const { error: assistErr } = await createSupabaseClient()
               .from("chat_messages")
-              .insert({ session_id: sid, role: "assistant", content: contentToSave });
+              .insert({
+                session_id: sid,
+                role: "assistant",
+                content: contentToSave,
+                ...(context ? { context } : {}),
+              });
             if (assistErr) console.error("[Chat] Failed to save assistant message:", assistErr);
           }
           onAgentComplete?.();

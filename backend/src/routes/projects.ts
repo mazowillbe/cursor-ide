@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { createServerClient } from "../lib/supabase/server.js";
 import { requireAuth } from "../lib/auth.js";
+import { ensureProjectFolder, toSafeProjectFolderName } from "../workspace.js";
 const router = Router();
 
 /** List user's projects (auth required). */
@@ -100,6 +101,14 @@ router.patch("/:workspaceId/project", requireAuth, async (req, res) => {
     if (updateErr) {
       res.status(500).json({ error: updateErr.message });
       return;
+    }
+
+    if (updates.name && toSafeProjectFolderName(updates.name)) {
+      try {
+        await ensureProjectFolder(workspaceId, updates.name);
+      } catch (e) {
+        console.warn("[projects] ensureProjectFolder failed:", (e as Error)?.message);
+      }
     }
 
     res.json({

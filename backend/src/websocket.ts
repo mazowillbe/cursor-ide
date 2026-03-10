@@ -701,9 +701,11 @@ export function attachAgentWebSocket(wss: WebSocketServer): void {
           }
 
           const agentMode = typeof msg.agentMode === "string" ? msg.agentMode.trim() : "Ask";
+          // Agent mode: no prefix — use hardcoded system prompt (autonomous behavior already there).
+          // Other modes: add instruction prefix to steer behavior.
           const modePrefix =
             agentMode === "Agent"
-              ? "[Mode: Agent] Full autonomous agent: resolve the user's request completely before ending your turn.\n\n"
+              ? ""
               : agentMode === "Plan"
                 ? "[Mode: Plan] The user wants you to focus on planning first: outline steps before making changes.\n\n"
                 : agentMode === "Debug"

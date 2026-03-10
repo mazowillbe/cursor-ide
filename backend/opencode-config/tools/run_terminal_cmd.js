@@ -18,7 +18,8 @@ In using these tools, adhere to the following guidelines:
 4. For ANY commands that would require user interaction, ASSUME THE USER IS NOT AVAILABLE TO INTERACT and PASS THE NON-INTERACTIVE FLAGS (e.g. --yes for npx).
 5. If the command would use a pager, append \` | cat\` to the command.
 6. For commands that are long running/expected to run indefinitely until interruption, please run them in the background. To run jobs in the background, set \`is_background\` to true rather than changing the details of the command.
-7. Dont include any newlines in the command.`,
+7. Dont include any newlines in the command.
+8. CRITICAL: Commands run from the PROJECT ROOT (the directory containing package.json), not the workspace root. If list_dir shows a subfolder like \`todo-app\` with the app, that subfolder IS the project root. Use \`npm run dev\` directly—do NOT use \`npm run dev --prefix todo-app\` or similar, or the command will fail (npm would look for a nested path that does not exist). Only use \`--prefix\` in a true monorepo when the project root contains multiple packages.`,
   args: {
     command: tool.schema.string().describe("The terminal command to execute"),
     is_background: tool.schema.boolean().describe("Whether the command should be run in the background"),

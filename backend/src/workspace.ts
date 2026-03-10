@@ -1,5 +1,5 @@
 import fs from "fs/promises";
-import { existsSync, readdirSync } from "fs";
+import { existsSync, readdirSync, readFileSync } from "fs";
 import path from "path";
 import { execSync, spawn } from "child_process";
 import { randomUUID } from "crypto";
@@ -18,6 +18,14 @@ const workspaceRoot = path.resolve(process.cwd(), config.workspaceRoot);
 
 /** Cache for project root to avoid repeated filesystem traversal */
 const projectRootCache = new Map<WorkspaceId, string>();
+
+/** Marker file in workspace root: content is the project folder name (e.g. todo-app). When set, findProjectRoot uses that subfolder. */
+const PROJECT_ROOT_MARKER = ".cursor-web-project-root";
+
+function assertPathWithin(base: string, full: string): void {
+  const rel = path.relative(base, full);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) throw new Error("Invalid path");
+}
 
 /** Template workspace used for snapshot cloning to reduce startup time. Not pruned. */
 const TEMPLATE_DIR_NAME = "_template";
@@ -60,12 +68,52 @@ export function getWorkspacePath(workspaceId: WorkspaceId): string {
  * Uses caching to avoid repeated filesystem calls.
  * Returns that directory path, or the workspace path if no package.json is found.
  */
+/** Safe folder name: lowercase, alphanumeric and dashes only (e.g. todo-app). */
+export function toSafeProjectFolderName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "") || "app";
+}
+
+/**
+ * Create the project-name folder in the workspace and set it as the project root.
+ * Called when the project-naming AI suggests a name (e.g. todo-app) so the agent works in workspace/id/todo-app/.
+ */
+export async function ensureProjectFolder(workspaceId: WorkspaceId, projectFolderName: string): Promise<void> {
+  const safe = toSafeProjectFolderName(projectFolderName);
+  if (!safe) return;
+  const base = getWorkspacePath(workspaceId);
+  const folderPath = path.join(base, safe);
+  await fs.mkdir(folderPath, { recursive: true });
+  const markerPath = path.join(base, PROJECT_ROOT_MARKER);
+  await fs.writeFile(markerPath, safe, "utf8");
+  projectRootCache.delete(workspaceId);
+}
+
 export function findProjectRoot(workspaceId: WorkspaceId): string {
   // Check cache first
   const cached = projectRootCache.get(workspaceId);
   if (cached && existsSync(cached)) return cached;
 
   const base = getWorkspacePath(workspaceId);
+
+  const markerPath = path.join(base, PROJECT_ROOT_MARKER);
+  if (existsSync(markerPath)) {
+    try {
+      const markerContent = readFileSync(markerPath, "utf8").trim();
+      const projectDir = path.join(base, markerContent);
+      if (markerContent && existsSync(projectDir)) {
+        projectRootCache.set(workspaceId, projectDir);
+        return projectDir;
+      }
+    } catch {
+      /* fall through to package.json search */
+    }
+  }
   
   // Helper to check if a directory contains package.json
   const hasPackageJson = (dir: string) => existsSync(path.join(dir, "package.json"));
@@ -195,19 +243,20 @@ export async function createWorkspaceWithId(id: WorkspaceId): Promise<void> {
 }
 
 export async function listWorkspaceFiles(workspaceId: WorkspaceId, dir = "."): Promise<FileNode[]> {
-  const base = getWorkspacePath(workspaceId);
-  const target = path.join(base, dir);
+  const base = findProjectRoot(workspaceId);
+  const target = path.resolve(base, path.normalize(dir));
   const normalized = path.normalize(dir);
   if (normalized.startsWith("..") || path.isAbsolute(normalized)) {
     throw new Error("Invalid path");
   }
-  const HIDDEN_FILES = new Set(["system-prompt.txt", "tools.json", "opencode.json"]);
+  assertPathWithin(base, target);
+  const HIDDEN_FILES = new Set(["system-prompt.txt", "tools.json", "opencode.json", PROJECT_ROOT_MARKER]);
   const entries = await fs.readdir(target, { withFileTypes: true });
   const nodes: FileNode[] = [];
   for (const e of entries) {
     if (dir === "." && HIDDEN_FILES.has(e.name)) continue;
-    const rel = path.join(dir, e.name);
-    const full = path.join(base, rel);
+    const rel = path.join(dir, e.name).replace(/\\/g, "/");
+    const full = path.join(base, path.normalize(rel));
     const stat = await fs.stat(full);
     nodes.push({
       name: e.name,
@@ -228,9 +277,9 @@ export interface FileNode {
 }
 
 export async function readFile(workspaceId: WorkspaceId, filePath: string): Promise<string> {
-  const base = getWorkspacePath(workspaceId);
-  const full = path.join(base, path.normalize(filePath));
-  if (!full.startsWith(base)) throw new Error("Invalid path");
+  const base = findProjectRoot(workspaceId);
+  const full = path.resolve(base, path.normalize(filePath));
+  assertPathWithin(base, full);
   const content = await fs.readFile(full, "utf-8");
   return content;
 }
@@ -240,13 +289,15 @@ export async function writeFile(
   filePath: string,
   content: string
 ): Promise<void> {
-  const base = getWorkspacePath(workspaceId);
-  const full = path.join(base, path.normalize(filePath));
-  if (!full.startsWith(base)) throw new Error("Invalid path");
+  const base = findProjectRoot(workspaceId);
+  const full = path.resolve(base, path.normalize(filePath));
+  assertPathWithin(base, full);
   await fs.mkdir(path.dirname(full), { recursive: true });
   await fs.writeFile(full, content, "utf-8");
   if (config.useSupabaseFiles) {
-    await writeFileToSupabase(workspaceId, filePath, content).catch((e) =>
+    const wsBase = getWorkspacePath(workspaceId);
+    const workspaceRel = path.relative(wsBase, full).replace(/\\/g, "/");
+    await writeFileToSupabase(workspaceId, workspaceRel, content).catch((e) =>
       console.warn("[workspace] Supabase write failed:", (e as Error).message)
     );
   }
@@ -256,24 +307,28 @@ export async function createFolder(
   workspaceId: WorkspaceId,
   folderPath: string
 ): Promise<void> {
-  const base = getWorkspacePath(workspaceId);
-  const full = path.join(base, path.normalize(folderPath));
-  if (!full.startsWith(base)) throw new Error("Invalid path");
+  const base = findProjectRoot(workspaceId);
+  const full = path.resolve(base, path.normalize(folderPath));
+  assertPathWithin(base, full);
   await fs.mkdir(full, { recursive: true });
   if (config.useSupabaseFiles) {
-    await createFolderInSupabase(workspaceId, folderPath).catch((e) =>
+    const wsBase = getWorkspacePath(workspaceId);
+    const workspaceRel = path.relative(wsBase, full).replace(/\\/g, "/");
+    await createFolderInSupabase(workspaceId, workspaceRel).catch((e) =>
       console.warn("[workspace] Supabase createFolder failed:", (e as Error).message)
     );
   }
 }
 
 export async function deletePath(workspaceId: WorkspaceId, filePath: string): Promise<void> {
-  const base = getWorkspacePath(workspaceId);
-  const full = path.join(base, path.normalize(filePath));
-  if (!full.startsWith(base)) throw new Error("Invalid path");
+  const base = findProjectRoot(workspaceId);
+  const full = path.resolve(base, path.normalize(filePath));
+  assertPathWithin(base, full);
   await fs.rm(full, { recursive: true });
   if (config.useSupabaseFiles) {
-    await deletePathFromSupabase(workspaceId, filePath).catch((e) =>
+    const wsBase = getWorkspacePath(workspaceId);
+    const workspaceRel = path.relative(wsBase, full).replace(/\\/g, "/");
+    await deletePathFromSupabase(workspaceId, workspaceRel).catch((e) =>
       console.warn("[workspace] Supabase delete failed:", (e as Error).message)
     );
   }
@@ -313,7 +368,13 @@ export async function pruneOldWorkspaces(activeWorkspaceIds: Set<string>): Promi
           console.log("[workspace] pruned old workspace", id);
         }
       } catch (err) {
-        console.warn("[workspace] prune stat/rm failed for", id, err instanceof Error ? err.message : err);
+        const msg = err instanceof Error ? err.message : String(err);
+        const isEacces = /EACCES|permission denied/i.test(msg);
+        if (isEacces) {
+          console.warn("[workspace] prune skipped (permission denied):", id, "— use a Docker named volume instead of bind mount if this persists");
+        } else {
+          console.warn("[workspace] prune stat/rm failed for", id, msg);
+        }
       }
     }
   } catch (err) {
