@@ -1,17 +1,17 @@
 #!/bin/sh
 set -e
 
-# Ensure workspace dir exists and appuser can write
-mkdir -p /var/data/workspaces
-chown -R appuser:appuser /var/data
+# Ensure workspace root exists and is writable
+mkdir -p "$WORKSPACE_ROOT"
+chown -R appuser:appuser "$WORKSPACE_ROOT"
 
-# Set workspace ID (fallback to 'default' if not provided)
-WORKSPACE_ID=${WORKSPACE_ID:-default}
+# Ensure _template folder exists
+mkdir -p "$WORKSPACE_ROOT/_template"
+chown -R appuser:appuser "$WORKSPACE_ROOT/_template"
 
-# Create per-workspace Supabase home
-export SUPABASE_HOME="$WORKSPACE_ROOT/$WORKSPACE_ID/.supabase"
+# Ensure global Supabase home exists
 mkdir -p "$SUPABASE_HOME"
 chown -R appuser:appuser "$SUPABASE_HOME"
 
-# Switch to non-root user and execute the command
+# Switch to non-root user
 exec gosu appuser "$@"
