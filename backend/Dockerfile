@@ -40,20 +40,18 @@ COPY --from=builder /app/opencode-config ./opencode-config
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Create non-root user
+# Create non-root user and ensure writable directories
 RUN adduser --disabled-password --gecos "" appuser \
   && mkdir -p /var/data/workspaces \
+  && mkdir -p /var/data/.supabase \
+  && mkdir -p /var/data/workspaces/_template \
   && chown -R appuser:appuser /app /var/data
 
 # Environment variables
 ENV NODE_ENV=production
 ENV WORKSPACE_ROOT=/var/data/workspaces
 ENV NODE_OPTIONS="--max-old-space-size=896"
-# Global fallback Supabase home
 ENV SUPABASE_HOME=/var/data/.supabase
-
-# Ensure global fallback exists
-RUN mkdir -p /var/data/.supabase && chown -R appuser:appuser /var/data/.supabase
 
 EXPOSE 3001
 
