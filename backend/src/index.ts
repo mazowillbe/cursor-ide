@@ -17,6 +17,7 @@ import projectNameRouter from "./routes/project-name.js";
 import searchRouter from "./routes/search.js";
 import gitRouter from "./routes/git.js";
 import lintsRouter from "./routes/lints.js";
+import workspaceApiRouter from "./routes/workspace-api.js";
 import { attachAgentWebSocket } from "./websocket.js";
 import { attachTerminalWebSocket, TERMINAL_WS_PATH } from "./terminal-ws.js";
 import executeToolRouter from "./routes/execute-tool.js";
@@ -58,6 +59,7 @@ async function main() {
   app.use("/api", lintsRouter);
   app.use("/api", executeToolRouter);
   app.use("/api", describeImageRouter);
+  app.use("/api", workspaceApiRouter);
   if (process.env.ALLOW_TEST_ROUTES === "1") {
     app.post("/api/test/reset-thinking", express.json(), (req, res) => {
       const workspaceId = typeof req.body?.workspaceId === "string" ? req.body.workspaceId.trim() : "";
